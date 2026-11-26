@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.streamlit/secrets.toml
+.streamlit/machine_id*
+exam_tracker.db
+*.db-shm
+*.db-wal
+.cache/
+.local/
+shots/
+*.zip
+backups/
+*.db
+.pytest_cache/

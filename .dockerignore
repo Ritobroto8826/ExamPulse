@@ -1,0 +1,11 @@
+.git
+.streamlit/secrets.toml
+backups
+*.zip
+*.db
+*.db-*
+__pycache__
+tests
+shots
+.cache
+.local
