@@ -1,0 +1,7 @@
+# Link to a FRESH hosted project before `supabase db push`.
+project_id = "exampulse"
+
+[functions.manage-students]
+# User JWT is verified explicitly by auth.getUser inside the function, followed
+# by an active-teacher profile lookup. Required for new asymmetric signing keys.
+verify_jwt = false

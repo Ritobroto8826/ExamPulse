@@ -1,0 +1,145 @@
+"""Unit tests: isolated HTTP transport, auth lifecycle and import validation."""
+import base64
+import json
+import time
+import unittest
+from unittest.mock import patch
+import httpx
+import pandas as pd
+import auth
+import database
+from cloud import CloudClient, CloudError
+from curriculum import SUBJECTS
+from settings import ConfigurationError, Settings, load_settings
+from fake_cloud import FakeCloud, STUDENT_ID
+
+CONFIG = Settings("https://project.example.test", "sb_publishable_unit_tests_only", "https://app.example.test")
+
+
+class TransportTests(unittest.TestCase):
+    def test_jwts_are_isolated(self):
+        sent = []
+        def handler(request):
+            sent.append(request.headers["authorization"])
+            self.assertEqual(request.headers["apikey"], CONFIG.public_key)
+            return httpx.Response(200, json=[])
+        transport = httpx.MockTransport(handler)
+        a, b = CloudClient(CONFIG, "student-A", transport), CloudClient(CONFIG, "student-B", transport)
+        a.rows("students"); b.rows("students"); a.rows("students")
+        self.assertEqual(sent, ["Bearer student-A", "Bearer student-B", "Bearer student-A"])
+
+    def test_pagination_no_default_thousand_row_truncation(self):
+        def handler(request):
+            offset = int(request.url.params["offset"])
+            return httpx.Response(200, json=[{"id": i} for i in range(offset, min(offset+500, 1203))])
+        c = CloudClient(CONFIG, "jwt", httpx.MockTransport(handler))
+        self.assertEqual(len(c.rows("score_details")), 1203)
+
+    def test_errors_do_not_echo_provider_secrets(self):
+        c = CloudClient(CONFIG, "jwt", httpx.MockTransport(lambda _: httpx.Response(403, json={"message": "PRIVATE-SECRET"})))
+        with self.assertRaises(CloudError) as raised:
+            c.rows("scores")
+        self.assertEqual(raised.exception.status, 403)
+        self.assertNotIn("PRIVATE", str(raised.exception))
+
+    def test_unauthenticated_mutation_blocked_before_request(self):
+        c = CloudClient(CONFIG)
+        with self.assertRaises(CloudError): c.rest("POST", "scores", body={})
+
+    def test_read_only_rpc_is_paginated(self):
+        def handler(request):
+            offset = int(request.url.params["offset"])
+            return httpx.Response(200, json=[{"student_id": i} for i in range(offset, min(offset+500, 1503))])
+        client = CloudClient(CONFIG, "jwt", httpx.MockTransport(handler))
+        self.assertEqual(len(client.rpc_rows("exam_comparison", {"p_exam_id": 1})), 1503)
+
+    def test_configuration_rejects_privileged_key(self):
+        values = {"SUPABASE_URL": CONFIG.url, "APP_URL": CONFIG.app_url, "SUPABASE_PUBLISHABLE_KEY": "sb_secret_do_not_use"}
+        with patch("settings._value", side_effect=lambda key: values.get(key, "")):
+            with self.assertRaises(ConfigurationError): load_settings()
+        encoded = base64.urlsafe_b64encode(json.dumps({"role": "service_role"}).encode()).decode().rstrip("=")
+        values["SUPABASE_PUBLISHABLE_KEY"] = "header."+encoded+".signature"
+        with patch("settings._value", side_effect=lambda key: values.get(key, "")):
+            with self.assertRaises(ConfigurationError): load_settings()
+
+
+class AccountTests(unittest.TestCase):
+    def setUp(self):
+        self.fake = FakeCloud(populated=True)
+        self.state = {}
+        self.patches = [patch.object(auth.st, "session_state", self.state),
+                        patch("auth.load_settings", return_value=CONFIG),
+                        patch("auth.CloudClient", side_effect=lambda settings, access_token="": CloudClient(settings, access_token, self.fake.transport))]
+        for p in self.patches: p.start()
+        self.addCleanup(lambda: [p.stop() for p in reversed(self.patches)])
+
+    def login(self):
+        user, error = auth.authenticate("student@example.test", "student-only-test-passphrase")
+        self.assertIsNone(error); self.assertEqual(user["role"], "student")
+        self.state["user"] = user
+        return user
+
+    def test_no_shared_default_or_wrong_password(self):
+        user, error = auth.authenticate("student@example.test", "wrong-password")
+        self.assertIsNone(user); self.assertIn("Incorrect", error)
+        self.assertNotIn("auth_session", self.state)
+
+    def test_session_refresh_and_disable(self):
+        self.login(); self.state["auth_session"]["expires_at"] = time.time()-1
+        self.assertEqual(auth.ensure_session()["id"], STUDENT_ID)
+        self.assertGreater(self.state["auth_session"]["expires_at"], time.time())
+        next(p for p in self.fake.profiles if p["id"]==STUDENT_ID)["active"] = False
+        self.assertIsNone(auth.ensure_session()); self.assertNotIn("auth_session", self.state)
+
+    def test_password_change_requires_current_password(self):
+        self.login()
+        with self.assertRaises(ValueError): auth.change_password("another-long-private-passphrase", "another-long-private-passphrase")
+        with self.assertRaises(ValueError): auth.change_password("another-long-private-passphrase", "another-long-private-passphrase", "wrong-current")
+        auth.change_password("another-long-private-passphrase", "another-long-private-passphrase", "student-only-test-passphrase")
+        self.assertEqual(self.fake.people["student@example.test"]["password"], "another-long-private-passphrase")
+
+    def test_invite_callback_scrubs_url_and_gates_password(self):
+        query = {"token_hash": "valid-invitation-token-for-testing", "type": "invite", "theme": "dark"}
+        with patch.object(auth.st, "query_params", query):
+            self.assertTrue(auth.consume_email_link())
+        self.assertEqual(query, {"theme": "dark"})
+        self.assertTrue(self.state["password_setup"])
+        with self.assertRaises(ValueError): auth.change_password("short", "short")
+        auth.change_password("private-invitation-passphrase", "private-invitation-passphrase")
+        self.assertNotIn("password_setup", self.state)
+
+    def test_only_own_records_leave_supabase_mock(self):
+        self.login()
+        self.fake.add_student("10000000-0000-4000-8000-000000000003", "Other Student", "Class 10", "other@example.test")
+        self.fake.scores.append({"id":2,"student_id":2,"exam_id":1,"subject_id":1,"topic_id":1,"score":12,"max_score":100})
+        frame = database.load_scores_df()
+        self.assertEqual(frame.student_name.tolist(), ["Test Student"])
+        comparison = database.exam_comparison(1)
+        self.assertEqual(set(comparison.student_name), {"Test Student", "Other Student"})
+        self.assertNotIn("email", comparison)
+
+
+class DataTests(unittest.TestCase):
+    def test_exact_curriculum_and_sql_seed(self):
+        self.assertEqual(list(SUBJECTS), ["Mathematics", "Science"])
+        self.assertEqual([len(v) for v in SUBJECTS.values()], [14, 13])
+        from pathlib import Path
+        sql = (Path(__file__).parents[1]/"supabase/migrations/202611260001_production.sql").read_text()
+        for chapters in SUBJECTS.values():
+            for chapter in chapters: self.assertIn(chapter.replace("'", "''"), sql)
+
+    def test_validation_ambiguous_names_and_invalid_topics(self):
+        roster=[{"id":1,"name":"Same Name","email":"one@example.test"}, {"id":2,"name":"Same Name","email":"two@example.test"}]
+        base={"student":"one@example.test","subject":"Mathematics","topic":"Real Numbers","exam":"Unit 1","exam_date":"2026-11-26","score":82}
+        rows=[base,{**base,"student":"Same Name"},{**base,"topic":"English"},{**base,"score":float('inf')},base]
+        with patch("database.list_students", return_value=roster), patch("database._topic_ids",return_value={("Mathematics","Real Numbers"):(1,1)}):
+            valid, errors=database.resolve_upload(pd.DataFrame(rows))
+        self.assertEqual(len(valid),1); self.assertEqual(len(errors),4)
+        self.assertEqual(valid[0]["student_id"],1)
+
+    def test_export_neutralizes_spreadsheet_formulas(self):
+        csv=database.export_csv(pd.DataFrame({"name":["=HYPERLINK(\"bad\")"," @SUM(1)","Safe"]}))
+        self.assertIn("'=HYPERLINK",csv); self.assertIn("' @SUM",csv); self.assertIn("Safe",csv)
+
+
+if __name__ == '__main__': unittest.main()
