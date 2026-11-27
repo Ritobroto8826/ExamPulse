@@ -649,16 +649,187 @@ def render_students_page(df: pd.DataFrame) -> None:
 
 
 
+def _render_marksheet(students: list[dict], subjects: list[dict],
+                      df: pd.DataFrame) -> None:
+    """Whole-class fast entry: exam + chapters once, one marks grid, one save."""
+    with_students = {int(s["class_level"]) for s in students}
+    view = st.session_state.get("class_view", "All classes")
+    level_from_view = (int(view.rsplit(" ", 1)[-1])
+                       if view and view != "All classes" else None)
+    default_level = (level_from_view if level_from_view in with_students
+                     else next((lv for lv in CLASS_LEVELS if lv in with_students),
+                               CLASS_LEVELS[0]))
+    class_sel = st.selectbox(
+        "Class for this marksheet", CLASS_LEVELS, format_func=class_label,
+        index=CLASS_LEVELS.index(default_level), key="ms_class",
+        help="Marks save class-by-class — every class has its own chapters.",
+    )
+    roster = [s for s in students if int(s["class_level"]) == class_sel]
+    if not roster:
+        st.info(f"No students in {class_label(class_sel)} yet — invite them "
+                "in Manage Students first.")
+        return
+    if not subjects:
+        st.info("Curriculum missing — ask the administrator to run the "
+                "Supabase migration.")
+        return
+
+    subjects_by_name = {s["name"]: s for s in subjects}
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        subject = st.selectbox("Subject (filters chapters)",
+                               list(subjects_by_name), key="ms_subject")
+    with col_b:
+        topics = database.topics_for_subject(subject, class_sel)
+        st.caption(f"{class_label(class_sel)} · {len(topics)} chapters "
+                   f"under {subject}")
+
+    exams = database.list_exams()
+    exam_labels = [f"{e['name']}  ·  {e['exam_date']}" for e in exams]
+    new_exam = st.checkbox(
+        "➕ Create a new exam / test", key="ms_new_exam",
+        help="Chapters you tick stay remembered for this exam, so every "
+             "student's row uses the same setup.",
+    )
+    if new_exam:
+        e1, e2, e3 = st.columns([2, 1, 1])
+        with e1:
+            exam_name = st.text_input("Exam name", key="ms_exam_name",
+                                      placeholder="Weekly Test 12 – Science")
+        with e2:
+            exam_date = st.date_input("Date", value=date.today(),
+                                      key="ms_exam_date")
+        with e3:
+            exam_kind = st.selectbox(
+                "Type", ["Weekly Test", "Monthly Exam", "Unit Test",
+                         "Mock Exam"], key="ms_exam_kind")
+        exam_key, exam_id = "new", None
+        exam_date_value = exam_date.isoformat()
+    else:
+        if not exam_labels:
+            st.warning("No exams exist yet — create a new exam above.")
+            return
+        exam_label = st.selectbox(
+            "Exam", exam_labels, key="ms_exam",
+            help="Chapters already scored on this exam come pre-ticked.",
+        )
+        chosen = exams[exam_labels.index(exam_label)]
+        exam_key, exam_id = str(chosen["id"]), chosen["id"]
+        exam_name = chosen["name"]
+        exam_date_value, exam_kind = chosen["exam_date"], chosen["kind"]
+
+    sub_id = subjects_by_name[subject]["id"]
+    scored = (df[(df["exam_id"] == exam_id) & (df["subject_id"] == sub_id)]
+              if exam_id is not None else df.iloc[0:0])
+    default_topics = [t for t in topics if t in set(scored["topic"])]
+    ticked = st.multiselect(
+        "Chapters covered in this test", topics, default=default_topics,
+        key=f"ms_topics_{exam_key}_{subject}",
+        help="Tick every chapter this test covered — remembered for this exam.",
+    )
+    if not ticked:
+        st.info("Tick the chapters this test covered — the marks grid "
+                "appears below.")
+        return
+
+    outs: dict[str, float] = {}
+    st.caption("Total marks per chapter — set once, applies to every student:")
+    cols = st.columns(min(len(ticked), 3))
+    for i, topic in enumerate(ticked):
+        with cols[i % len(cols)]:
+            prior = scored.loc[scored["topic"] == topic, "raw_max"].dropna()
+            fallback = max(float(prior.iloc[-1]), 1.0) if len(prior) else 100.0
+            outs[topic] = st.number_input(
+                f"Out of · {topic}", min_value=1.0, value=fallback, step=1.0,
+                key=f"ms_out_{exam_key}_{subject}_{topic}",
+            )
+
+    labels = [f"{s['name']} · {s['batch']} · ID {s['id']}" for s in roster]
+    id_by_label = {lbl: int(s["id"]) for lbl, s in zip(labels, roster)}
+    cells: dict[str, dict] = {}
+    for label in labels:
+        sid = id_by_label[label]
+        row = {}
+        for topic in ticked:
+            match = scored[(scored["student_id"] == sid)
+                           & (scored["topic"] == topic)]
+            row[topic] = None
+            if len(match):
+                rec = match.iloc[-1]
+                if pd.notna(rec["raw_score"]):
+                    row[topic] = float(rec["raw_score"])
+                else:
+                    row[topic] = round(
+                        float(rec["score"]) * outs[topic] / 100.0, 2)
+        cells[label] = row
+    grid = pd.DataFrame.from_dict(cells, orient="index")
+    grid.index.name = "Student"
+
+    st.caption("Type marks per cell — blank means 'not taken'. Existing "
+               "scores come pre-filled; a blank cell keeps what was saved.")
+    edited = st.data_editor(
+        grid, key=f"ms_grid_{exam_key}_{subject}_{class_sel}",
+        width="stretch", hide_index=False,
+        column_config={
+            topic: st.column_config.NumberColumn(
+                topic, min_value=0.0, max_value=float(outs[topic]),
+                step=0.5, format="%.2f",
+            )
+            for topic in ticked
+        },
+    )
+
+    if st.button("💾 Save marksheet", key="ms_save", type="primary",
+                 width="stretch"):
+        if new_exam and not str(exam_name).strip():
+            st.error("Please enter an exam name.")
+            return
+        topic_ids = database._topic_ids()
+        records, conversions, errors = database.build_marksheet_records(
+            edited, id_by_label, ticked, outs, topic_ids, subject, class_sel,
+            str(exam_name).strip(), exam_date_value, exam_kind,
+        )
+        if errors:
+            listed = "\n".join(f"- {e}" for e in errors[:8])
+            more = "\n- …" if len(errors) > 8 else ""
+            st.error(f"Fix these cells first:\n\n{listed}{more}")
+            return
+        if not records:
+            st.info("No marks entered — type marks into the grid, then save.")
+            return
+        # One database transaction: every filled cell saves or none does.
+        database.import_records(records)
+        bump()
+        detail = "; ".join(conversions[:3]) + \
+            (" …" if len(conversions) > 3 else "")
+        st.success(
+            f"Saved {len(records)} mark(s) · {exam_name} · "
+            f"{class_label(class_sel)} — {detail}"
+        )
+
+
 def render_score_entry(df: pd.DataFrame) -> None:
     students = database.list_students()
     subjects = database.list_subjects()
-    if not students or not subjects:
-        st.info("Invite a student in Manage Students first. If the curriculum is missing, ask the administrator to run the Supabase migration.")
-        return
 
     notice = st.session_state.pop("score_notice", None)
     if notice:
         st.success(notice)
+
+    mode = st.radio(
+        "Entry mode", ["Class marksheet", "Single student"],
+        horizontal=True, key="entry_mode",
+        help="Marksheet = the whole class in one grid, one save. "
+             "Single student = one pupil at a time.",
+    )
+    if mode == "Class marksheet":
+        _render_marksheet(students, subjects, df)
+        _render_recent_entries(df)
+        return
+
+    if not students or not subjects:
+        st.info("Invite a student in Manage Students first. If the curriculum is missing, ask the administrator to run the Supabase migration.")
+        return
 
     students_by_id = {s["id"]: s for s in students}
 
@@ -797,6 +968,10 @@ def render_score_entry(df: pd.DataFrame) -> None:
             f"({class_label(class_level)}) — {detail}"
         )
 
+    _render_recent_entries(df)
+
+
+def _render_recent_entries(df: pd.DataFrame) -> None:
     # ---------------- Edit / delete recent ----------------
     st.markdown('<div class="side-sep"></div>', unsafe_allow_html=True)
     st.markdown(card_head("Recent entries",

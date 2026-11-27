@@ -48,6 +48,7 @@ class CloudUITests(unittest.TestCase):
         login(teacher,"staff@example.test","staff-only-test-passphrase");self.check(teacher)
         self.assertTrue(any("No scores recorded" in x.value for x in teacher.info))
         teacher.radio(key="nav").set_value("🧑‍🏫 Students & Scores");teacher.run();self.check(teacher)
+        teacher.radio(key="entry_mode").set_value("Single student");teacher.run();self.check(teacher)
         self.assertTrue(any(x.label=="Student email" for x in teacher.text_input))
         next(x for x in teacher.selectbox if x.label=="Class").select(10)
         next(x for x in teacher.text_input if x.label=="Full name").set_value("Fresh Student")
@@ -98,6 +99,7 @@ class CloudUITests(unittest.TestCase):
         teacher=AppTest.from_file(str(ROOT/"app.py"),default_timeout=30).run()
         login(teacher,"staff@example.test","staff-only-test-passphrase");self.check(teacher)
         teacher.radio(key="nav").set_value("🧑‍🏫 Students & Scores");teacher.run();self.check(teacher)
+        teacher.radio(key="entry_mode").set_value("Single student");teacher.run();self.check(teacher)
         # Invite a Class 8 student: entry must offer the Class 8 curriculum.
         next(x for x in teacher.selectbox if x.label=="Class").select(8)
         next(x for x in teacher.text_input if x.label=="Full name").set_value("Class Eight Student")
@@ -152,6 +154,50 @@ class CloudUITests(unittest.TestCase):
         self.assertTrue(any("Class 8 · " in x.value for x in teacher.markdown))
         teacher.radio(key="nav").set_value("🧑‍🏫 Students & Scores");teacher.run();self.check(teacher)
         self.assertEqual(len(teacher.selectbox(key="drill_pick").options),2)
+
+    def test_class_marksheet_fast_entry(self):
+        fake=self.setup_cloud()
+        at=AppTest.from_file(str(ROOT/"app.py"),default_timeout=30).run()
+        self.check(at)
+        login(at,"staff@example.test","staff-only-test-passphrase");self.check(at)
+        at.radio(key="nav").set_value("🧑‍🏫 Students & Scores");at.run();self.check(at)
+        # The marksheet is the default entry mode.
+        self.assertEqual(at.radio(key="entry_mode").value,"Class marksheet")
+        # Invite one Class 10 student for the sheet.
+        next(x for x in at.selectbox if x.label=="Class").select(10)
+        next(x for x in at.text_input if x.label=="Full name").set_value("Grid Student")
+        next(x for x in at.text_input if x.label=="Batch").set_value("A")
+        next(x for x in at.text_input if x.label=="Student email").set_value("grid@example.test")
+        submit(at,"add_student_form");self.check(at)
+        self.assertEqual(fake.students[0]["class_level"],10)
+        # Record one mark the quick way first (single-student mode).
+        at.radio(key="entry_mode").set_value("Single student");at.run();self.check(at)
+        at.checkbox(key="entry_new_exam").check();at.run()
+        topics=next(x for x in at.multiselect if x.label=="Topics covered in this test")
+        topics.select("Real Numbers");at.run();self.check(at)
+        # Keyless form fields are set after the last structural change, before submit.
+        next(x for x in at.text_input if x.label=="Exam name").set_value("Grid chapter test")
+        next(x for x in at.number_input if x.label=="Marks · Real Numbers").set_value(15)
+        next(x for x in at.number_input if x.label=="Out of · Real Numbers").set_value(20)
+        submit(at,"score_form");self.check(at)
+        self.assertEqual(fake.scores[0]["score"],75.0)
+        # Back to the marksheet: the exam's chapters, out-of and marks prefill.
+        at.radio(key="entry_mode").set_value("Class marksheet");at.run();self.check(at)
+        picked=next(x for x in at.multiselect if x.label=="Chapters covered in this test")
+        self.assertEqual(list(picked.value),["Real Numbers"])
+        out_box=next(x for x in at.number_input if x.label=="Out of · Real Numbers")
+        self.assertEqual(out_box.value,20)
+        table=at.data_editor[0].value
+        self.assertEqual(list(table.index),["Grid Student · A · ID 1"])
+        self.assertEqual(table.loc["Grid Student · A · ID 1","Real Numbers"],15)
+        # One out-of for the whole column, then one save writes the class.
+        next(x for x in at.number_input if x.label=="Out of · Real Numbers").set_value(30)
+        next(b for b in at.button if b.key=="ms_save").click();at.run();self.check(at)
+        self.assertTrue(any("Saved 1 mark(s)" in x.value for x in at.success))
+        self.assertEqual(len(fake.scores),1)          # upsert, not duplicate
+        self.assertEqual(fake.scores[0]["score"],50.0) # 15/30 reconverted
+        self.assertEqual(fake.scores[0]["raw_score"],15)
+        self.assertEqual(fake.scores[0]["raw_max"],30)
 
     def test_invitation_requires_private_password_before_scores(self):
         self.setup_cloud(populated=True)

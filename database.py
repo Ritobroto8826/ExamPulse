@@ -165,6 +165,52 @@ def import_records(records: list[dict]) -> int:
     return int(auth.client().rpc("import_score_records", {"p_records": records}))
 
 
+def build_marksheet_records(edited: pd.DataFrame, id_by_label: dict[str, int],
+                            ticked: list[str], outs: dict[str, float],
+                            topic_ids: dict, subject: str, class_level: int,
+                            exam_name: str, exam_date: str, exam_kind: str,
+                            ) -> tuple[list[dict], list[str], list[str]]:
+    """Class marksheet grid -> import_score_records payload.
+
+    Blank cells are skipped (they keep whatever was saved before); every
+    filled cell must sit between 0 and its chapter's 'out of' value. Returns
+    (records, conversions, errors) — callers refuse to save while errors
+    exist so one bad cell never lands half a class.
+    """
+    records, conversions, errors = [], [], []
+    for label, row in edited.iterrows():
+        student_id = id_by_label.get(label)
+        if student_id is None:
+            continue
+        who = str(label).split(" · ")[0]
+        for topic in ticked:
+            value = row[topic] if topic in edited.columns else None
+            if value is None or pd.isna(value):
+                continue
+            try:
+                marks = float(value)
+            except (TypeError, ValueError):
+                errors.append(f"{who} · {topic}: {value!r} is not a number")
+                continue
+            out_of = float(outs.get(topic, 0) or 0)
+            if out_of <= 0:
+                errors.append(f"{topic}: 'out of' must be above 0")
+                continue
+            if not math.isfinite(marks) or marks < 0 or marks > out_of:
+                errors.append(f"{who} · {topic}: {marks:g} must be between 0 and {out_of:g}")
+                continue
+            topic_id, subject_id = topic_ids[(class_level, subject, topic)]
+            percent = round(marks / out_of * 100.0, 2)
+            records.append({
+                "student_id": int(student_id), "subject_id": int(subject_id),
+                "topic_id": int(topic_id), "exam": exam_name,
+                "exam_date": exam_date, "exam_kind": exam_kind,
+                "score": percent, "raw_score": marks, "raw_max": out_of,
+            })
+            conversions.append(f"{topic} {marks:g}/{out_of:g} → {percent:g}%")
+    return records, conversions, errors
+
+
 def resolve_upload(raw: pd.DataFrame) -> tuple[list[dict], list[dict]]:
     df = raw.copy()
     df.columns = [str(c).strip().lower() for c in df.columns]
