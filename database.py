@@ -162,7 +162,14 @@ def import_records(records: list[dict]) -> int:
         return 0
     if len(records) > 1000:
         raise ValueError("Import at most 1,000 rows per file.")
-    return int(auth.client().rpc("import_score_records", {"p_records": records}))
+    saved = auth.client().rpc("import_score_records", {"p_records": records})
+    if saved is None:
+        # An empty RPC body would crash int(None); treat it as unconfirmed.
+        raise CloudError(
+            "The save was not confirmed by the database. Refresh to check "
+            "whether the marks landed before retrying."
+        )
+    return int(saved)
 
 
 def build_marksheet_records(edited: pd.DataFrame, id_by_label: dict[str, int],
