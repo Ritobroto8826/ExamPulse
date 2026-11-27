@@ -240,7 +240,11 @@ section[data-testid="stMain"]:has(.login-hero) [data-testid="stAlert"] { max-wid
 .lb-meta,.sch-meta { font-size:11px; }.pb-head { font-size:13px; }
 .chart-key { font-size:11px; }.brand-caption { font-size:11px; }
 [data-testid="stTooltipIcon"] { color:var(--muted) !important; }
-:root:has(#ep-theme-dark) [role="tooltip"] { background:var(--surface);color:var(--ink); }
+/* Tooltips have an outer role=tooltip and an inner content layer; style both
+   with !important or the inner layer paints light-on-light in dark mode. */
+[role="tooltip"], [data-testid="stTooltipContent"] {
+  background:var(--surface) !important;color:var(--ink) !important;
+}
 @media(max-width:768px) {
   section[data-testid="stMain"] .st-key-app_topbar [data-testid="stHorizontalBlock"] {
     flex-direction:row !important;flex-wrap:nowrap !important;gap:8px !important;
@@ -258,9 +262,16 @@ section[data-testid="stMain"]:has(.login-hero) [data-testid="stAlert"] { max-wid
   background:var(--card) !important;color:var(--ink) !important;border-color:var(--line) !important;
 }
 [data-testid="stDateInputField"] [contenteditable], [data-testid="stDateInputField"] [data-type="literal"] { color:var(--ink) !important; }
-[data-testid="stDateInputCalendar"] { box-shadow:var(--shadow);border:1px solid var(--line) !important; }
+[data-testid="stDateInputCalendar"] {
+  background:var(--card) !important;color:var(--ink) !important;
+  box-shadow:var(--shadow);border:1px solid var(--line) !important;
+}
 [data-testid="stDateInputCalendar"] button,
 [data-testid="stDateInputCalendar"] th { color:var(--muted) !important;background:transparent !important; }
+[data-testid="stDateInputCalendar"] select,
+[data-testid="stDateInputCalendar"] [role="combobox"] {
+  background:var(--card) !important;color:var(--ink) !important;
+}
 [data-testid="stDateInputCalendar"] [role="button"] { color:var(--ink) !important; }
 [data-testid="stDateInputCalendar"] [role="button"][data-selected="true"] {
   background:var(--accent-soft) !important;color:var(--accent-text) !important;border:1px solid var(--accent);
