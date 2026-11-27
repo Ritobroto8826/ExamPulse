@@ -199,6 +199,29 @@ class CloudUITests(unittest.TestCase):
         self.assertEqual(fake.scores[0]["raw_score"],15)
         self.assertEqual(fake.scores[0]["raw_max"],30)
 
+    def test_delete_exam_manager_protects_saved_scores(self):
+        fake=self.setup_cloud(populated=True)
+        at=AppTest.from_file(str(ROOT/"app.py"),default_timeout=30).run()
+        self.check(at)
+        login(at,"staff@example.test","staff-only-test-passphrase");self.check(at)
+        at.radio(key="nav").set_value("🧑‍🏫 Students & Scores");at.run();self.check(at)
+        # The manager lists the seeded exam; its saved marks lock the button.
+        pick=at.selectbox(key="exam_del_pick")
+        self.assertEqual(len(pick.options),1)
+        self.assertIn("Unit assessment",pick.options[0])
+        btn=next(b for b in at.button if b.key=="exam_del_btn")
+        self.assertTrue(btn.disabled,"delete must be locked while scores exist")
+        at.checkbox(key="exam_del_force").check();at.run();self.check(at)
+        btn=next(b for b in at.button if b.key=="exam_del_btn")
+        self.assertFalse(btn.disabled)
+        btn.click();at.run();self.check(at)
+        self.assertEqual(fake.exams,[])
+        self.assertEqual(fake.scores,[])
+        self.assertTrue(any("Deleted exam" in x.value for x in at.success))
+        # Dropdowns refresh: single mode now guides to creating an exam.
+        at.radio(key="entry_mode").set_value("Single student");at.run();self.check(at)
+        self.assertTrue(any("No exams exist yet" in x.value for x in at.warning))
+
     def test_invitation_requires_private_password_before_scores(self):
         self.setup_cloud(populated=True)
         at=AppTest.from_file(str(ROOT/"app.py"),default_timeout=30)

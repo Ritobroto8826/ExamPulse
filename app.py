@@ -667,6 +667,36 @@ def render_students_page(df: pd.DataFrame) -> None:
 
 
 
+def _render_exam_manager(df: pd.DataFrame) -> None:
+    """Dropdown cleanup: drop unused exams; exams with marks need a tick."""
+    exams = database.list_exams()
+    if not exams:
+        return
+    counts = df["exam_id"].value_counts() if not df.empty else pd.Series(dtype=int)
+    with st.expander("🗑 Manage saved exams"):
+        st.caption("Removes exams from every score-entry dropdown. An exam that "
+                   "already has marks stays protected unless you tick the box below.")
+        options = [f"{e['name']}  ·  {e['exam_date']}" for e in exams]
+        pick = st.selectbox("Exam to remove", options, key="exam_del_pick")
+        chosen = exams[options.index(pick)]
+        n = int(counts.get(chosen["id"], 0))
+        force = False
+        if n:
+            force = st.checkbox(f"Also delete its {n} saved score(s) — cannot be undone",
+                                key="exam_del_force")
+        if st.button("🗑 Delete exam", key="exam_del_btn", width="stretch",
+                     disabled=bool(n) and not force):
+            database.delete_exam(chosen["id"], include_scores=bool(force))
+            st.session_state.pop("ms_exam", None)
+            st.session_state.pop("exam_del_pick", None)
+            st.session_state["score_notice"] = (
+                f"Deleted exam “{chosen['name']}”"
+                + (f" and its {n} score(s)." if n else ".")
+            )
+            bump()
+            st.rerun()
+
+
 def _render_marksheet(students: list[dict], subjects: list[dict],
                       df: pd.DataFrame) -> None:
     """Whole-class fast entry: exam + chapters once, one marks grid, one save."""
@@ -842,6 +872,7 @@ def render_score_entry(df: pd.DataFrame) -> None:
     )
     if mode == "Class marksheet":
         _render_marksheet(students, subjects, df)
+        _render_exam_manager(df)
         _render_recent_entries(df)
         return
 
@@ -986,6 +1017,7 @@ def render_score_entry(df: pd.DataFrame) -> None:
             f"({class_label(class_level)}) — {detail}"
         )
 
+    _render_exam_manager(df)
     _render_recent_entries(df)
 
 

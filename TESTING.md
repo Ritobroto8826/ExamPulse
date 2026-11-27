@@ -61,6 +61,8 @@ cat tests/local_bootstrap.sql \
     supabase/migrations/202611260001_production.sql \
     tests/pre_upgrade_schedule.sql \
     supabase/migrations/202611270001_multi_class_entry.sql \
+    supabase/migrations/202611270002_schedule_view.sql \
+    supabase/migrations/202611270003_delete_exam.sql \
     tests/rls.sql | psql -X -v ON_ERROR_STOP=1 exampulse_security_test
 ```
 
