@@ -102,6 +102,13 @@ def list_exams() -> list[dict]:
     return auth.client().rows("exams", {"select": "id,name,exam_date,kind", "order": "exam_date.desc,id.desc"})
 
 
+def delete_exam(exam_id: int, include_scores: bool = False) -> None:
+    """Remove an exam from the entry dropdowns. The database refuses when the
+    exam still has marks unless include_scores is set."""
+    auth.client().rpc("delete_exam", {"p_exam_id": int(exam_id),
+                                     "p_include_scores": bool(include_scores)})
+
+
 def _score_frame(rows) -> pd.DataFrame:
     frame = pd.DataFrame(rows, columns=SCORE_COLUMNS)
     frame["exam_date"] = pd.to_datetime(frame["exam_date"])

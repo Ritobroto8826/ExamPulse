@@ -170,6 +170,18 @@ class FakeCloud:
                                             "exam_id": existing["id"],
                                             "topic_id": r["topic_id"], **payload})
                 return ok(len(records))
+            elif table == "rpc/delete_exam":
+                if not teacher:
+                    return ok({"message": "Teacher role required"}, 403)
+                eid = int(body.get("p_exam_id") or 0)
+                include = bool(body.get("p_include_scores"))
+                hits = [m for m in self.scores if m["exam_id"] == eid]
+                if hits and not include:
+                    return ok({"message": "Exam still has scores"}, 400)
+                if include:
+                    self.scores[:] = [m for m in self.scores if m["exam_id"] != eid]
+                self.exams[:] = [e for e in self.exams if e["id"] != eid]
+                return httpx.Response(204)
             elif table in ("schedule_details", "upcoming_tests"): rows = self.schedule
             elif table == "audit_log": rows = []
             elif table == "rpc/set_student_active":

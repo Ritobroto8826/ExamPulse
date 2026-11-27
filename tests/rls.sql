@@ -64,6 +64,7 @@ do $$ begin
   begin perform public.set_student_active(1,false); raise exception 'student access mutation allowed'; exception when insufficient_privilege then null; end;
   begin perform public.import_score_records('[]'); raise exception 'student import allowed'; exception when insufficient_privilege then null; end;
   begin perform public.claim_invitation(); raise exception 'student invite allowed'; exception when insufficient_privilege then null; end;
+  begin perform public.delete_exam((select id from public.exams where name='Policy test'), false); raise exception 'student exam delete allowed'; exception when insufficient_privilege then null; end;
 end $$;
 reset role;
 
@@ -126,6 +127,27 @@ do $$ declare blocked boolean := false; begin
   perform public.test_assert(blocked, 'invitation rate limit enforced atomically in database');
   begin insert into public.subjects(name,position) values('English',3);
     raise exception 'curriculum mutation allowed'; exception when insufficient_privilege then null; end;
+end $$;
+-- Exam dropdown cleanup: teacher deletes; scores block unless included.
+do $$ declare e bigint;
+begin
+  insert into public.exams(name, exam_date, kind) values ('Deletable exam', current_date + 10, 'Weekly Test') returning id into e;
+  perform public.delete_exam(e, false);
+  perform public.test_assert(not exists(select 1 from public.exams where id = e), 'scoreless exam deleted by teacher');
+  insert into public.exams(name, exam_date, kind) values ('Protected exam', current_date + 11, 'Weekly Test') returning id into e;
+  insert into public.scores(student_id, exam_id, subject_id, topic_id, score)
+    select student_id, e, subject_id, topic_id, 66 from public.scores
+    where exam_id = (select id from public.exams where name='Policy test') limit 1;
+  begin
+    perform public.delete_exam(e, false);
+    raise exception 'exam with scores deleted without include flag';
+  exception when others then
+    if sqlerrm not like '%p_include_scores%' then raise; end if;
+  end;
+  perform public.test_assert(exists(select 1 from public.scores where exam_id = e), 'scores survive a blocked delete');
+  perform public.delete_exam(e, true);
+  perform public.test_assert(not exists(select 1 from public.exams where id = e), 'exam deleted with include flag');
+  perform public.test_assert(not exists(select 1 from public.scores where exam_id = e), 'included scores deleted too');
 end $$;
 reset role;
 
