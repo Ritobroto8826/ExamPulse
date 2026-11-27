@@ -161,6 +161,14 @@ input::placeholder,textarea::placeholder { color:var(--faint) !important; }
 [data-testid="stTabs"] [role="tab"] { color:var(--muted);font-size:12px;font-weight:600;padding:12px; }
 [data-testid="stTabs"] [aria-selected="true"] { color:var(--accent-text) !important; }
 [data-testid="stExpander"] { background:var(--card);border:1px solid var(--line);border-radius:12px; }
+/* Streamlit's configured theme is light (config.toml base="light"), so the
+   expander header and help anchors keep white native backgrounds in dark
+   mode — force them onto our tokens like the tooltip/calendar fixes. */
+[data-testid="stExpander"] div[role="button"],
+[data-testid="stExpander"] details > summary { background:var(--card) !important;color:var(--ink) !important; }
+[data-testid="stExpander"] div[role="button"]:hover,
+[data-testid="stExpander"] details > summary:hover { background:var(--card) !important;filter:brightness(1.25); }
+[data-testid="stHelp"] { background:transparent !important;color:var(--muted) !important;border-color:transparent !important; }
 [data-testid="stFileUploaderDropzone"] { background:var(--surface);border:1px dashed var(--line);color:var(--muted); }
 [data-testid="stFileUploader"] button { background:var(--card);border-color:var(--line);color:var(--ink); }
 [data-testid="stDataFrame"], [data-testid="stDataEditor"] { border-radius:10px;border:1px solid var(--line);overflow:hidden; }

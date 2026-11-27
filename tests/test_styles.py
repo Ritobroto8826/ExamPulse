@@ -30,6 +30,17 @@ class PopupCssTests(unittest.TestCase):
         self.assertIn("!important", match.group(1),
                       "inner tooltip layer paints over non-!important rules")
 
+    def test_expander_header_forced_onto_theme_tokens(self):
+        # The expander header keeps Streamlit's light-theme white background
+        # (config.toml base="light") and hides its label in dark mode.
+        match = re.search(
+            r'\[data-testid="stExpander"\][^{]*div\[role="button"\][^{]*\{([^}]*)\}',
+            CSS)
+        self.assertIsNotNone(match, "expander header rule missing")
+        self.assertIn("background", match.group(1))
+        self.assertIn("!important", match.group(1))
+        self.assertIn("color", match.group(1))
+
 
 if __name__ == "__main__":
     unittest.main()
