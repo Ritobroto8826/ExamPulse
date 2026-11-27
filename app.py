@@ -1588,12 +1588,16 @@ def main() -> None:
         if st.button("Refresh safely", key="retry_request"):
             st.rerun()
     except Exception as error:
-        # Never render raw exceptions, Auth responses, URLs or tokens to clients.
+        # Never render raw exceptions, Auth responses, URLs or tokens to clients;
+        # the type name and full traceback (server-side logs) identify the fault.
         import logging
         import uuid
         incident = uuid.uuid4().hex[:12]
-        logging.getLogger(__name__).error("Application incident=%s type=%s", incident, type(error).__name__)
-        st.error(f"The request could not be completed. Contact the administrator with reference {incident}.")
+        logging.getLogger(__name__).exception("Application incident=%s", incident)
+        st.error(
+            f"The request could not be completed. Contact the administrator "
+            f"with reference {incident} ({type(error).__name__})."
+        )
 
 
 main()
