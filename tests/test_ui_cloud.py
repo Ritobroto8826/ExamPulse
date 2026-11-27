@@ -235,4 +235,30 @@ class CloudUITests(unittest.TestCase):
                 self.assertTrue(any(x.label=="Email address" for x in at.text_input))
 
 
+    def test_class_view_scoped_to_its_pages_and_soft_refresh(self):
+        self.setup_cloud(populated=True)
+        at=AppTest.from_file(str(ROOT/"app.py"),default_timeout=30).run()
+        login(at,"staff@example.test","staff-only-test-passphrase");self.check(at)
+
+        def shown(page):
+            at.radio(key="nav").set_value(page);at.run();self.check(at)
+            return "class_view" in [w.key for w in at.selectbox]
+
+        # Only the pages whose queries the class view actually filters.
+        self.assertTrue(shown("📊 Dashboard"))
+        at.selectbox(key="class_view").select("Class 8");at.run();self.check(at)
+        self.assertFalse(shown("🧑‍🏫 Students & Scores"))   # roster/entry: all classes
+        self.assertTrue(shown("📤 Bulk Upload & Reports"))  # reports & analytics
+        self.assertTrue(shown("📅 Schedule"))               # teacher focus list
+        self.assertFalse(shown("🔐 Account & Security"))    # returns before filtering
+        # The chosen view survives hiding and applies when the page returns.
+        self.assertTrue(shown("📊 Dashboard"))
+        self.assertEqual(at.selectbox(key="class_view").value,"Class 8")
+        # Soft refresh re-fetches without logging the user out.
+        at.button(key="soft_refresh").click();at.run();self.check(at)
+        self.assertEqual(at.radio(key="nav").value,"📊 Dashboard")
+        self.assertFalse(any(x.label=="Email address" for x in at.text_input))
+        self.assertEqual(at.selectbox(key="class_view").value,"Class 8")
+
+
 if __name__=='__main__':unittest.main()

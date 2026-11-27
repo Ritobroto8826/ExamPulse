@@ -358,17 +358,35 @@ def render_sidebar(user: dict) -> None:
         pages = TEACHER_PAGES if user["role"] == "teacher" else STUDENT_PAGES
         st.radio("Navigation", pages, key="nav", label_visibility="collapsed",
                  format_func=lambda page: page.partition(" ")[2])
+        # Soft refresh: re-fetch everything from the cloud, keep the session
+        # (no logout, form and chart state preserved).
+        if st.button("🔄 Refresh data", key="soft_refresh", width="stretch",
+                     help="Reload the latest data from the cloud. "
+                          "You stay signed in."):
+            st.rerun()
 
         if user["role"] == "teacher":
             st.markdown('<div class="side-sep"></div>', unsafe_allow_html=True)
-            st.selectbox(
-                "🏫 Class view",
-                ["All classes"] + [class_label(v) for v in CLASS_LEVELS],
-                key="class_view",
-                help="Scopes Dashboard, reports and schedule analytics to one "
-                     "class. Score entry and student drill-down always follow "
-                     "the selected student.",
-            )
+            # Class view only where it actually filters: Dashboard, Bulk
+            # Upload reports and Schedule. Roster/entry always shows every
+            # class, and Account returns before any filtering.
+            if st.session_state.get("nav", pages[0]) in (
+                TEACHER_PAGES[0], TEACHER_PAGES[2], TEACHER_PAGES[3]
+            ):
+                # Streamlit prunes widget state while the box is hidden on
+                # other pages; a shadow key keeps the choice alive.
+                if "class_view" not in st.session_state:
+                    st.session_state["class_view"] = st.session_state.get(
+                        "class_view_scope", "All classes")
+                choice = st.selectbox(
+                    "🏫 Class view",
+                    ["All classes"] + [class_label(v) for v in CLASS_LEVELS],
+                    key="class_view",
+                    help="Scopes Dashboard, reports and schedule analytics to "
+                         "one class. Score entry and student drill-down always "
+                         "follow the selected student.",
+                )
+                st.session_state["class_view_scope"] = choice
             st.slider(
                 "🎯 Mastery threshold", 40, 90, key="threshold", step=5,
                 help="Scores below this level are flagged as weak areas and "
