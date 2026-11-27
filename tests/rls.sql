@@ -145,5 +145,9 @@ set local role authenticated;
 select public.test_assert(not public.is_active(), 'unprovisioned account blocked');
 select public.test_assert((select count(*)=0 from public.score_details), 'unprovisioned gets no marks');
 reset role;
+-- Regression: the app selects class_level from schedule_details; if any
+-- migration recreates upcoming_tests without this view, dashboards fail.
+select id, title, test_date, topic, notes, subject, class_level
+  from public.schedule_details limit 1;
 rollback;
 \echo ALL POSTGRESQL RLS TESTS PASSED
