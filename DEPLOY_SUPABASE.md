@@ -40,13 +40,15 @@ docker run --rm -p 8501:8501 --env-file /secure/path/exampulse.env exampulse
 Terminate HTTPS at the hosting proxy and allow WebSocket connections. Bind the
 app to port 8501. Do not expose a plain HTTP deployment publicly.
 
-## 2. Apply the database migration to a FRESH project
+## 2. Apply the database migrations to a FRESH project
 
-Option A — SQL Editor: execute the entire file:
+Option A — SQL Editor: execute **both files in order**:
 
-`supabase/migrations/202611260001_production.sql`
+1. `supabase/migrations/202611260001_production.sql`
+2. `supabase/migrations/202611270001_multi_class_entry.sql`
 
-Option B — Supabase CLI, from the package root:
+Option B — Supabase CLI, from the package root (applies every pending
+migration in order):
 
 ```bash
 supabase login
@@ -54,24 +56,37 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
 ```
 
-The migration runs in a transaction and creates:
+Each migration runs in a transaction. Together they create:
 
-- Two subjects, **Mathematics** and **Science**, with **14 + 13 ordered chapters**.
+- Two subjects, **Mathematics** and **Science**, with ordered chapters for
+  **Class 8 (16 + 15), Class 9 (15 + 13) and Class 10 (14 + 13)** — 86 chapters.
 - Empty students, profiles, exams, scores and schedule tables.
 - Security-invoker reporting views, RLS policies and narrow RPCs.
-- An audit log and an atomic invitation rate gate.
+- An audit log, an atomic invitation rate gate, and a trigger that rejects
+  scores whose chapter does not match the student's class.
 
-It deliberately fails if conflicting tables already exist. It does **not** drop
-or migrate any existing classroom records. Do not edit a deployed migration;
-add a new migration for future changes.
+They deliberately fail if conflicting tables already exist. They do **not**
+drop or migrate any existing classroom records. Do not edit a deployed
+migration; add a new migration for future changes.
+
+**Upgrading a deployment made from the single-class edition:** run only
+`202611270001_multi_class_entry.sql` in the SQL Editor (it converts existing
+students and scheduled chapter tests to Class 10 where the batch/topic text
+says so), then **redeploy the `manage-students` Edge Function** — provisioning
+now takes a class level. Review `students.class_level` afterwards;
+unrecognised batch text falls back to Class 10 and can be corrected in
+Manage Students.
 
 Verify the seed in SQL Editor:
 
 ```sql
-select s.name, count(t.id) as chapters
+select t.class_level, s.name, count(t.id) as chapters
 from public.subjects s join public.topics t on t.subject_id=s.id
-group by s.id,s.name,s.position order by s.position;
--- Mathematics 14, Science 13
+group by t.class_level, s.id, s.name, s.position
+order by t.class_level, s.position;
+-- Class 8: Mathematics 16, Science 15
+-- Class 9: Mathematics 15, Science 13
+-- Class 10: Mathematics 14, Science 13
 select count(*) from public.students; -- 0 before inviting anyone
 select count(*) from public.scores;   -- 0 before entering marks
 ```
@@ -203,14 +218,22 @@ PostgreSQL owner connection string, shared user password, or production tokens.
 
 1. Sign in with the first teacher's email/password.
 2. Open **Students & Scores → Manage Students**.
-3. Enter the student's full name, batch and **unique email**, then invite.
+3. Enter the student's full name, **class** (8, 9 or 10), batch and **unique
+   email**, then invite. The class decides which chapters can be recorded for
+   that student; it can be corrected later in Manage Students if needed.
 4. The student opens the email and sets their **own private password**. The
    teacher cannot see it. Students should choose distinct passwords and not
    share email accounts; Supabase does not promise that two people cannot
    independently choose the same password string.
-5. Enter marks in **Add / Edit Scores**, by subject → chapter → exam. Bulk uploads
-   identify students by registered email (unique names are also accepted, but
-   ambiguous names are rejected).
+5. Enter marks in **Add / Edit Scores**: pick the student, the subject, then
+   **tick every chapter the test covered** and type each chapter's raw marks
+   with their total (e.g. 15 out of 20 — not every test is out of 100). One
+   save records all ticked chapters under the same exam in a single
+   transaction, storing both the converted percentage and the raw marks.
+   When different classes test on the same day, give each class its own exam
+   name so the tests stay separate. Bulk uploads identify students by
+   registered email (unique names are also accepted, but ambiguous names are
+   rejected) and validate chapters against each student's class.
 6. Use **Account & Security** for password changes and recent staff audit events.
 7. A teacher can disable/enable a student in Manage Students without deleting
    historical marks. Disabling immediately blocks DB access even for an existing
@@ -218,10 +241,11 @@ PostgreSQL owner connection string, shared user password, or production tokens.
 
 Students' personal pages show only their own rows. As requested, **Student
 Comparison deliberately shares names, batches and selected exam summaries**
-with active school users. It exposes neither email addresses nor Auth UUIDs or
-account details. Comparison charts paginate at 25 bars per chart page for large
-rosters. This is an explicit privacy choice; obtain school/parental authorization
-before using real student data. Do not describe this feature as fully private marks.
+with active school users **of the viewer's own class**. It exposes neither
+email addresses nor Auth UUIDs or account details. Comparison charts paginate
+at 25 bars per chart page for large rosters. This is an explicit privacy
+choice; obtain school/parental authorization before using real student data.
+Do not describe this feature as fully private marks.
 
 ## 8. Backups, operations and release gates
 

@@ -44,7 +44,7 @@ function setup(role = "teacher", active = true, validJwt = true, rateLimited = f
 function request(authorization = "Bearer unit-user-jwt", extra = {}) {
   return new Request("https://edge.example.test/manage-students", {
     method: "POST", headers: { Authorization: authorization, "Content-Type": "application/json" },
-    body: JSON.stringify({ name: "Test Student", batch: "Class 10", email: "student@example.test", ...extra }),
+    body: JSON.stringify({ name: "Test Student", batch: "Class 10", email: "student@example.test", class_level: 10, ...extra }),
   });
 }
 
@@ -74,6 +74,14 @@ Deno.test("database rate gate runs before invitation", async () => {
   const calls = setup("teacher", true, true, true);
   try { assert((await handleRequest(request())).status === 429); assert(!calls.includes("/auth/v1/invite")); }
   finally { globalThis.fetch = originalFetch; }
+});
+Deno.test("missing or out-of-range class level is rejected before any invite", async () => {
+  const calls = setup();
+  try {
+    assert((await handleRequest(request("Bearer unit-user-jwt", { class_level: undefined }))).status === 400);
+    assert((await handleRequest(request("Bearer unit-user-jwt", { class_level: 99 }))).status === 400);
+    assert(!calls.includes("/auth/v1/invite"));
+  } finally { globalThis.fetch = originalFetch; }
 });
 Deno.test("active teacher invitation provisions a student without returning keys or tokens", async () => {
   const calls = setup();

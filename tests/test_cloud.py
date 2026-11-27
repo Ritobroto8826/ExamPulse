@@ -9,7 +9,7 @@ import pandas as pd
 import auth
 import database
 from cloud import CloudClient, CloudError
-from curriculum import SUBJECTS
+from curriculum import CURRICULUM
 from settings import ConfigurationError, Settings, load_settings
 from fake_cloud import FakeCloud, STUDENT_ID
 
@@ -121,21 +121,34 @@ class AccountTests(unittest.TestCase):
 
 class DataTests(unittest.TestCase):
     def test_exact_curriculum_and_sql_seed(self):
-        self.assertEqual(list(SUBJECTS), ["Mathematics", "Science"])
-        self.assertEqual([len(v) for v in SUBJECTS.values()], [14, 13])
+        self.assertEqual(sorted(CURRICULUM), [8, 9, 10])
+        for level in (8, 9, 10):
+            self.assertEqual(list(CURRICULUM[level]), ["Mathematics", "Science"])
+        self.assertEqual({lvl: [len(v) for v in subs.values()]
+                          for lvl, subs in CURRICULUM.items()},
+                         {8: [16, 15], 9: [15, 13], 10: [14, 13]})
         from pathlib import Path
-        sql = (Path(__file__).parents[1]/"supabase/migrations/202611260001_production.sql").read_text()
-        for chapters in SUBJECTS.values():
-            for chapter in chapters: self.assertIn(chapter.replace("'", "''"), sql)
+        root = Path(__file__).parents[1]
+        sql = ((root/"supabase/migrations/202611260001_production.sql").read_text()
+               + (root/"supabase/migrations/202611270001_multi_class_entry.sql").read_text())
+        for subs in CURRICULUM.values():
+            for chapters in subs.values():
+                for chapter in chapters:
+                    self.assertIn(chapter.replace("'", "''"), sql)
 
     def test_validation_ambiguous_names_and_invalid_topics(self):
-        roster=[{"id":1,"name":"Same Name","email":"one@example.test"}, {"id":2,"name":"Same Name","email":"two@example.test"}]
+        roster=[{"id":1,"name":"Same Name","email":"one@example.test","class_level":10},
+                {"id":2,"name":"Same Name","email":"two@example.test","class_level":10}]
         base={"student":"one@example.test","subject":"Mathematics","topic":"Real Numbers","exam":"Unit 1","exam_date":"2026-11-26","score":82}
-        rows=[base,{**base,"student":"Same Name"},{**base,"topic":"English"},{**base,"score":float('inf')},base]
-        with patch("database.list_students", return_value=roster), patch("database._topic_ids",return_value={("Mathematics","Real Numbers"):(1,1)}):
+        # A Class 8 chapter must not validate against a Class 10 student.
+        wrong_class={**base,"topic":"Rational Numbers"}
+        rows=[base,{**base,"student":"Same Name"},{**base,"topic":"English"},{**base,"score":float('inf')},base,wrong_class]
+        topic_ids={(10,"Mathematics","Real Numbers"):(1,1),(8,"Mathematics","Rational Numbers"):(2,1)}
+        with patch("database.list_students", return_value=roster), patch("database._topic_ids",return_value=topic_ids):
             valid, errors=database.resolve_upload(pd.DataFrame(rows))
-        self.assertEqual(len(valid),1); self.assertEqual(len(errors),4)
+        self.assertEqual(len(valid),1); self.assertEqual(len(errors),5)
         self.assertEqual(valid[0]["student_id"],1)
+        self.assertTrue(any(e["field"]=="topic" for e in errors))
 
     def test_export_neutralizes_spreadsheet_formulas(self):
         csv=database.export_csv(pd.DataFrame({"name":["=HYPERLINK(\"bad\")"," @SUM(1)","Safe"]}))

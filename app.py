@@ -36,7 +36,7 @@ from components import (
 from styles import inject_css, init_theme, render_app_chrome, theme_mode
 from cloud import CloudError
 from settings import ConfigurationError, load_settings
-from curriculum import SUBJECTS
+from curriculum import CLASS_LEVELS, CURRICULUM, class_label
 from uploads import read_score_upload
 
 TEACHER_PAGES = [
@@ -89,10 +89,14 @@ def _delta_card(pts: float | None, suffix: str) -> dict:
 
 
 def topic_stats(df: pd.DataFrame, threshold: int) -> pd.DataFrame:
-    g = (df.groupby(["subject", "topic"])["score"]
+    # Chapters repeat across classes (e.g. "Triangles" in 9 and 10): group by
+    # class too, and disambiguate labels when a view mixes several classes.
+    g = (df.groupby(["class_level", "subject", "topic"])["score"]
          .agg(avg="mean", n="count")
          .reset_index()
          .sort_values("avg"))
+    if df["class_level"].nunique() > 1:
+        g["topic"] = g["class_level"].map(lambda v: class_label(int(v))) + " · " + g["topic"]
     g["color"] = g["avg"].apply(lambda v: band(v, threshold)[0])
     g["label"] = g["avg"].apply(lambda v: band(v, threshold)[1])
     g["pill"] = g["avg"].apply(lambda v: band(v, threshold)[2])
@@ -123,7 +127,7 @@ def build_kpi_cards(df: pd.DataFrame, role: str, threshold: int) -> list[dict]:
             "value": f"{df['score'].mean():.1f}%",
             **_delta_card(pts, "vs last test"),
         })
-        topic_means = df.groupby(["subject", "topic"])["score"].mean()
+        topic_means = df.groupby(["class_level", "subject", "topic"])["score"].mean()
         n_above = int((topic_means >= threshold).sum())
         cards.append({
             "label": "Topics Above Mastery",
@@ -157,7 +161,7 @@ def build_kpi_cards(df: pd.DataFrame, role: str, threshold: int) -> list[dict]:
         "value": f"{df['score'].mean():.1f}%",
         **_delta_card(pts, "vs last test"),
     })
-    topic_means = df.groupby(["subject", "topic"])["score"].mean()
+    topic_means = df.groupby(["class_level", "subject", "topic"])["score"].mean()
     n_above = int((topic_means >= threshold).sum())
     cards.append({
         "label": "Topics Above Mastery",
@@ -232,6 +236,8 @@ def upcoming_items(limit: int = 6) -> list[dict]:
         if d < today:
             continue
         meta = t["subject"] or "All subjects"
+        if t.get("class_level"):
+            meta = f"{meta} · {class_label(t['class_level'])}"
         if t.get("topic"):
             meta = f"{meta} · {t['topic']}"
         items.append({
@@ -316,9 +322,11 @@ def render_setup(message: str) -> None:
     st.markdown("**Deployment setup required** — follow `DEPLOY_SUPABASE.md` in the source package. "
                 "This production edition does not seed demo accounts or read the old SQLite file.")
     st.caption("No Supabase credentials have been supplied here. Your previous local database is preserved separately.")
-    for subject, chapters in SUBJECTS.items():
-        with st.expander(f"{subject} · {len(chapters)} chapters", expanded=True):
-            st.markdown("\n".join(f"{i}. {chapter}" for i, chapter in enumerate(chapters, 1)))
+    for level in CLASS_LEVELS:
+        for subject, chapters in CURRICULUM[level].items():
+            with st.expander(f"{class_label(level)} · {subject} · {len(chapters)} chapters",
+                             expanded=True):
+                st.markdown("\n".join(f"{i}. {chapter}" for i, chapter in enumerate(chapters, 1)))
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +339,12 @@ def render_sidebar(user: dict) -> None:
             role_line = "Teacher · All classes"
         else:
             batch = user.get("batch") or ""
-            role_line = f"Student · {batch}" if batch else "Student"
+            parts = []
+            if user.get("class_level"):
+                parts.append(class_label(user["class_level"]))
+            if batch:
+                parts.append(batch)
+            role_line = f"Student · {' · '.join(parts)}" if parts else "Student"
         st.markdown(profile_badge_html(user["display_name"], role_line),
                     unsafe_allow_html=True)
         st.button("Logout", key="logout_btn", width="stretch",
@@ -348,6 +361,14 @@ def render_sidebar(user: dict) -> None:
 
         if user["role"] == "teacher":
             st.markdown('<div class="side-sep"></div>', unsafe_allow_html=True)
+            st.selectbox(
+                "🏫 Class view",
+                ["All classes"] + [class_label(v) for v in CLASS_LEVELS],
+                key="class_view",
+                help="Scopes Dashboard, reports and schedule analytics to one "
+                     "class. Score entry and student drill-down always follow "
+                     "the selected student.",
+            )
             st.slider(
                 "🎯 Mastery threshold", 40, 90, key="threshold", step=5,
                 help="Scores below this level are flagged as weak areas and "
@@ -507,6 +528,7 @@ def _student_overview(df: pd.DataFrame, threshold: int) -> pd.DataFrame:
         weakest = stats.iloc[0] if not stats.empty else None
         rows.append({
             "Student": g["student_name"].iloc[0],
+            "Class": class_label(int(g["class_level"].iloc[0])),
             "Batch": g["batch"].iloc[0],
             "Tests": int(g["exam_id"].nunique()),
             "Average %": round(float(g["score"].mean()), 1),
@@ -536,7 +558,8 @@ def render_students_page(df: pd.DataFrame) -> None:
         if not students:
             st.info("No students yet.")
         else:
-            labels = [f"{s['name']} · {s['batch']}" for s in students]
+            labels = [f"{s['name']} · {class_label(s['class_level'])} · {s['batch']}"
+                      for s in students]
             choice = st.selectbox("Select a student", labels, key="drill_pick")
             sid = students[labels.index(choice)]["id"]
             if df.empty:
@@ -557,11 +580,22 @@ def render_students_page(df: pd.DataFrame) -> None:
                    "password in Supabase Auth; there is no shared or teacher-visible password.")
         with st.form("add_student_form", clear_on_submit=True):
             new_name = st.text_input("Full name", max_chars=120)
-            new_batch = st.text_input("Batch", max_chars=80, placeholder="Class 10 – A")
+            r1, r2 = st.columns([1, 1])
+            with r1:
+                new_class = st.selectbox(
+                    "Class", CLASS_LEVELS, format_func=class_label,
+                    index=(CLASS_LEVELS.index(10) if 10 in CLASS_LEVELS else 0),
+                    key="invite_class",
+                    help="Decides which chapters this student can be marked "
+                         "against.",
+                )
+            with r2:
+                new_batch = st.text_input("Batch", max_chars=80,
+                                          placeholder="Section A")
             new_email = st.text_input("Student email", max_chars=254)
             added = st.form_submit_button("Invite student by email", type="primary", width="stretch")
         if added:
-            database.invite_student(new_name, new_batch, new_email)
+            database.invite_student(new_name, new_batch, new_email, new_class)
             st.success("Invitation sent. The student can set their private password from the email link.")
         accounts = database.list_student_accounts()
         if accounts:
@@ -577,6 +611,39 @@ def render_students_page(df: pd.DataFrame) -> None:
             if update_access:
                 database.set_student_active(chosen, enabled == "Enabled")
                 st.success("Access updated. Disabling blocks database access immediately, including existing sessions.")
+            # Plain widgets (not a form): switching student must re-sync the
+            # class dropdown immediately via the change callback.
+            def _sync_class_choice() -> None:
+                level = account_map[st.session_state["edit_class_student"]]["class_level"]
+                if level in CLASS_LEVELS:
+                    st.session_state["edit_class_value"] = level
+            cc1, cc2, cc3 = st.columns([1.5, 1, 1])
+            with cc1:
+                edit_student = st.selectbox(
+                    "Student to update", list(account_map),
+                    format_func=lambda sid: (
+                        f"{account_map[sid]['name']} · {account_map[sid]['batch']}"
+                    ),
+                    key="edit_class_student",
+                    on_change=_sync_class_choice,
+                )
+            with cc2:
+                current_class = account_map[edit_student]["class_level"]
+                edit_class = st.selectbox(
+                    "New class", CLASS_LEVELS, format_func=class_label,
+                    index=(CLASS_LEVELS.index(current_class)
+                           if current_class in CLASS_LEVELS else 0),
+                    key="edit_class_value",
+                )
+            with cc3:
+                st.caption(" ")
+                if st.button("Update class", key="save_class_btn"):
+                    database.set_student_class(edit_student, edit_class)
+                    st.success(
+                        f"{account_map[edit_student]['name']} is now in "
+                        f"{class_label(edit_class)}. Score entry uses the new "
+                        "class's chapters from the next save."
+                    )
         else:
             st.info("No student accounts yet. Invite your first student above.")
 
@@ -589,6 +656,24 @@ def render_score_entry(df: pd.DataFrame) -> None:
         st.info("Invite a student in Manage Students first. If the curriculum is missing, ask the administrator to run the Supabase migration.")
         return
 
+    notice = st.session_state.pop("score_notice", None)
+    if notice:
+        st.success(notice)
+
+    students_by_id = {s["id"]: s for s in students}
+
+    # Student first: their class decides which chapters can be ticked.
+    student_id = st.selectbox(
+        "Student", list(students_by_id), key="entry_student",
+        format_func=lambda sid: (
+            f"{students_by_id[sid]['name']} · "
+            f"{class_label(students_by_id[sid]['class_level'])} · "
+            f"{students_by_id[sid]['batch']} · ID {sid}"
+        ),
+    )
+    stu = students_by_id[student_id]
+    class_level = int(stu["class_level"])
+
     subject_names = [s["name"] for s in subjects]
     col_a, col_b = st.columns([1, 1])
     with col_a:
@@ -598,30 +683,44 @@ def render_score_entry(df: pd.DataFrame) -> None:
                  "its chapters.",
         )
     with col_b:
+        topics = database.topics_for_subject(subject, class_level)
         st.caption(
-            f"Topics available: {len(database.topics_for_subject(subject))} "
-            f"chapters under {subject}"
+            f"{class_label(class_level)} · {len(topics)} chapters under {subject}"
         )
 
-    topics = database.topics_for_subject(subject)
+    # Tick every chapter this test covered; one save records them all under
+    # the same exam (student/exam/chapter upserts, one transaction).
+    selected = st.multiselect(
+        "Topics covered in this test", topics, key="entry_topics",
+        help="One score row per ticked chapter. Untick chapters that were "
+             "not part of this test.",
+    )
+    for topic in selected:
+        mark_col, out_col = st.columns(2)
+        with mark_col:
+            st.number_input(
+                f"Marks · {topic}", min_value=0.0, value=None, step=0.5,
+                key=f"entry_mark_{topic}",
+                help="Marks obtained — decimal marks allowed.",
+            )
+        with out_col:
+            st.number_input(
+                f"Out of · {topic}", min_value=1.0, value=100.0, step=1.0,
+                key=f"entry_out_{topic}",
+                help="Total marks for this chapter — not always 100. "
+                     "The app stores the converted percentage.",
+            )
+
     exams = database.list_exams()
     exam_labels = [f"{e['name']}  ·  {e['exam_date']}" for e in exams]
 
     # Outside the form so the new-exam fields appear immediately.
-    new_exam = st.checkbox("➕ Create a new exam / test", key="entry_new_exam")
-    students_by_id = {s["id"]: s for s in students}
+    new_exam = st.checkbox(
+        "➕ Create a new exam / test", key="entry_new_exam",
+        help="If two classes test on the same day, give each class its own "
+             "exam name so the tests stay separate.",
+    )
     with st.form("score_form"):
-        f1, f2 = st.columns(2)
-        with f1:
-            student_id = st.selectbox(
-                "Student", list(students_by_id),
-                format_func=lambda sid: (
-                    f"{students_by_id[sid]['name']} · "
-                    f"{students_by_id[sid]['batch']} · ID {sid}"
-                ),
-            )
-        with f2:
-            topic = st.selectbox("Topic / Chapter", topics)
         if new_exam:
             e1, e2, e3 = st.columns([2, 1, 1])
             with e1:
@@ -639,35 +738,63 @@ def render_score_entry(df: pd.DataFrame) -> None:
                 st.warning("No exams exist yet — create a new exam above.")
                 exam_name, exam_date, exam_kind, exam_label = "", None, "", ""
             exam_label = st.selectbox("Exam", exam_labels) if exam_labels else ""
-        score_val = st.number_input(
-            "Score (%)", min_value=0.0, max_value=100.0, value=75.0, step=1.0,
-        )
         saved = st.form_submit_button(
-            "💾 Save score", type="primary", width="stretch",
+            "💾 Save score(s)", type="primary", width="stretch",
         )
 
     if saved:
         # Never resolve a roster record by name: names may be duplicated.
-        stu = students_by_id[student_id]
         stu_name = stu["name"]
+        if not selected:
+            st.error("Tick at least one topic covered by this test.")
+            return
+        rows = []
+        for topic in selected:
+            marks = st.session_state.get(f"entry_mark_{topic}")
+            out_of = float(st.session_state.get(f"entry_out_{topic}") or 0)
+            if marks is None:
+                st.error(f"Enter the marks obtained for {topic}.")
+                return
+            marks = float(marks)
+            if out_of <= 0 or marks < 0 or marks > out_of:
+                st.error(f"{topic}: marks must be between 0 and the total "
+                         f"({out_of:g}).")
+                return
+            rows.append((topic, marks, out_of))
         if new_exam:
             if not exam_name.strip():
                 st.error("Please enter an exam name.")
                 return
-            exam_id = database.add_exam(
-                exam_name.strip(), exam_date.isoformat(), exam_kind,
-            )
+            exam_name_value = exam_name.strip()
+            exam_date_value = exam_date.isoformat()
+            exam_kind_value = exam_kind
         else:
             if not exam_label:
                 st.error("Please select or create an exam.")
                 return
-            exam_id = exams[exam_labels.index(exam_label)]["id"]
-        tid, sid = database._topic_ids()[(subject, topic)]
-        database.upsert_score(stu["id"], exam_id, sid, tid, score_val)
+            existing = exams[exam_labels.index(exam_label)]
+            exam_name_value = existing["name"]
+            exam_date_value = existing["exam_date"]
+            exam_kind_value = existing["kind"]
+        topic_ids = database._topic_ids()
+        records, conversions = [], []
+        for topic, marks, out_of in rows:
+            percent = round(marks / out_of * 100.0, 2)
+            tid, sub_id = topic_ids[(class_level, subject, topic)]
+            records.append({
+                "student_id": int(stu["id"]), "subject_id": sub_id,
+                "topic_id": tid, "exam": exam_name_value,
+                "exam_date": exam_date_value, "exam_kind": exam_kind_value,
+                "score": percent, "raw_score": marks, "raw_max": out_of,
+            })
+            conversions.append(f"{topic} {marks:g}/{out_of:g} → {percent:g}%")
+        # One database transaction: every ticked chapter saves or none does.
+        database.import_records(records)
         bump()
+        detail = "; ".join(conversions[:3]) + (" …" if len(conversions) > 3 else "")
         st.success(
-            f"Saved {score_val:.0f}% for {stu_name} — "
-            f"{subject} → {topic}."
+            f"Saved {len(records)} topic(s) for {stu_name} "
+            f"({class_label(class_level)}) — {detail}"
         )
 
     # ---------------- Edit / delete recent ----------------
@@ -680,7 +807,7 @@ def render_score_entry(df: pd.DataFrame) -> None:
         st.caption("No scores yet.")
         return
     display = recent[["score_id", "student", "exam", "exam_date",
-                      "subject", "topic", "score"]].copy()
+                      "subject", "topic", "score", "marks"]].copy()
     original = display.set_index("score_id")["score"].to_dict()
 
     edited = st.data_editor(
@@ -695,8 +822,13 @@ def render_score_entry(df: pd.DataFrame) -> None:
             "score": st.column_config.NumberColumn(
                 "Score (%)", min_value=0, max_value=100, step=1, width="small",
             ),
+            "marks": st.column_config.TextColumn(
+                "Raw marks", width="small",
+                help="Marks as entered (e.g. 15/20). Editing the percentage "
+                     "directly clears the raw marks.",
+            ),
         },
-        disabled=["student", "exam", "exam_date", "subject", "topic"],
+        disabled=["student", "exam", "exam_date", "subject", "topic", "marks"],
         hide_index=True,
         width="stretch",
         key="score_editor",
@@ -713,7 +845,8 @@ def render_score_entry(df: pd.DataFrame) -> None:
             changed += 1
     if changed:
         bump()
-        st.success(f"Updated {changed} score(s).")
+        st.session_state["score_notice"] = f"Updated {changed} score(s)."
+        st.rerun()
 
     del_choice = st.multiselect(
         "Select entries to delete",
@@ -754,7 +887,8 @@ def render_upload_page(df: pd.DataFrame) -> None:
             st.markdown(card_head(
                 "📤 Upload scores",
                 "Columns: student, subject, topic, exam, exam_date, score "
-                "(optional: exam_kind)",
+                "(optional: exam_kind). Chapters are matched to each "
+                "student's class.",
             ), unsafe_allow_html=True)
             template = (
                 "student,subject,topic,exam,exam_date,exam_kind,score\n"
@@ -820,12 +954,14 @@ def render_upload_page(df: pd.DataFrame) -> None:
                     lambda v: band(v, threshold)[1]
                 )
                 report_csv = (
-                    report[["student_name", "batch", "exam_name", "exam_date",
-                            "exam_kind", "subject", "topic", "score", "status"]]
+                    report[["student_name", "batch", "class_level", "exam_name",
+                            "exam_date", "exam_kind", "subject", "topic",
+                            "score", "raw_score", "raw_max", "status"]]
                     .rename(columns={
-                        "student_name": "student", "exam_name": "exam",
-                        "exam_date": "date", "exam_kind": "type",
-                        "score": "score",
+                        "student_name": "student", "class_level": "class",
+                        "raw_score": "marks", "raw_max": "out_of",
+                        "exam_name": "exam", "exam_date": "date",
+                        "exam_kind": "type",
                     })
                     .pipe(database.export_csv)
                 ).encode("utf-8-sig")
@@ -899,7 +1035,16 @@ def render_schedule_page(role: str, df: pd.DataFrame,
                             unsafe_allow_html=True)
                 subject_opts = ["General / All subjects"] + [s["name"] for s in database.list_subjects()]
                 subj = st.selectbox("Test subject", subject_opts, key="schedule_subject")
-                chapter_options = [""] + (database.topics_for_subject(subj) if subj != "General / All subjects" else [])
+                sch_class = None
+                if subj != "General / All subjects":
+                    sch_class = st.selectbox(
+                        "Class", CLASS_LEVELS, format_func=class_label,
+                        index=(CLASS_LEVELS.index(10) if 10 in CLASS_LEVELS else 0),
+                        key="schedule_class",
+                    )
+                    chapter_options = [""] + database.topics_for_subject(subj, sch_class)
+                else:
+                    chapter_options = [""]
                 with st.form("add_test_form"):
                     st.markdown(card_head("Add a test date"), unsafe_allow_html=True)
                     title = st.text_input("Title", placeholder="Mathematics – Probability Quiz", max_chars=160)
@@ -921,6 +1066,7 @@ def render_schedule_page(role: str, df: pd.DataFrame,
                         database.add_upcoming(
                             title, tdate.isoformat(),
                             database.subject_name_to_id(subj), topic, notes,
+                            class_level=sch_class if topic else None,
                         )
                         st.success(f"Scheduled “{title.strip()}” "
                                    f"on {tdate.strftime('%d %b %Y')}.")
@@ -1137,7 +1283,8 @@ def render_student_comparison(user: dict) -> None:
     topic_id = None
     if subject_id is not None:
         topics = {
-            tid: topic for (subject, topic), (tid, sid) in database._topic_ids().items()
+            tid: f"{class_label(level)} · {name}"
+            for (level, subject, name), (tid, sid) in database._topic_ids().items()
             if sid == subject_id
         }
         topic_id = st.selectbox(
@@ -1229,9 +1376,18 @@ def _main() -> None:
     scores = get_scores()  # PostgreSQL RLS enforces ownership before data leaves Supabase.
     if user["role"] != "teacher":
         scores = scores[scores["student_id"] == user.get("student_id")].copy()
+        roster_scores = scores
+    else:
+        # Sidebar class view scopes analytics pages; the roster page (drill-down,
+        # entry, accounts) always sees every class.
+        roster_scores = scores
+        view = st.session_state.get("class_view", "All classes")
+        if view != "All classes" and not scores.empty:
+            level = int(view.rsplit(" ", 1)[-1])
+            scores = scores[scores["class_level"] == level].copy()
     if user["role"] == "teacher":
         if page == TEACHER_PAGES[1]:
-            render_students_page(scores)
+            render_students_page(roster_scores)
         elif page == TEACHER_PAGES[2]:
             render_upload_page(scores)
         elif page == TEACHER_PAGES[3]:
