@@ -4,7 +4,7 @@ from datetime import date
 import json
 from urllib.parse import parse_qs
 import httpx
-from curriculum import SUBJECTS
+from curriculum import CURRICULUM
 
 TEACHER_ID = "10000000-0000-4000-8000-000000000001"
 STUDENT_ID = "10000000-0000-4000-8000-000000000002"
@@ -20,19 +20,26 @@ class FakeCloud:
         self.profiles = [{"id": TEACHER_ID, "role": "teacher", "display_name": "Test Teacher", "student_id": None, "active": True}]
         self.students, self.scores, self.exams, self.schedule = [], [], [], []
         self.subjects, self.topics = [], []
-        for sid, (name, chapters) in enumerate(SUBJECTS.items(), 1):
+        subject_names = list(next(iter(CURRICULUM.values())))
+        for sid, name in enumerate(subject_names, 1):
             self.subjects.append({"id": sid, "name": name, "position": sid})
-            for pos, chapter in enumerate(chapters, 1):
-                self.topics.append({"id": len(self.topics) + 1, "subject_id": sid, "name": chapter, "position": pos})
+        for level, subjects in CURRICULUM.items():
+            for name, chapters in subjects.items():
+                sid = next(s["id"] for s in self.subjects if s["name"] == name)
+                for pos, chapter in enumerate(chapters, 1):
+                    self.topics.append({"id": len(self.topics) + 1, "subject_id": sid,
+                                        "class_level": level, "name": chapter, "position": pos})
         self.requests = []
         if populated:
             self.add_student(STUDENT_ID, "Test Student", "Class 10", "student@example.test")
             self.exams.append({"id": 1, "name": "Unit assessment", "exam_date": date.today().isoformat(), "kind": "Unit Test"})
-            self.scores.append({"id": 1, "student_id": 1, "exam_id": 1, "subject_id": 1, "topic_id": 1, "score": 86, "max_score": 100})
+            self.scores.append({"id": 1, "student_id": 1, "exam_id": 1, "subject_id": 1, "topic_id": 1,
+                                "score": 86, "max_score": 100, "raw_score": None, "raw_max": None})
 
-    def add_student(self, uid, name, batch, email):
+    def add_student(self, uid, name, batch, email, class_level=10):
         sid = len(self.students) + 1
-        self.students.append({"id": sid, "name": name, "batch": batch, "email": email, "joined_date": date.today().isoformat()})
+        self.students.append({"id": sid, "name": name, "batch": batch, "class_level": class_level,
+                              "email": email, "joined_date": date.today().isoformat()})
         self.profiles.append({"id": uid, "role": "student", "display_name": name, "student_id": sid, "active": True})
         self.people.setdefault(email, {"id": uid, "password": "student-only-test-passphrase"})
         self.tokens["token-" + uid] = uid
@@ -77,7 +84,8 @@ class FakeCloud:
             if any(s["email"] == body["email"] for s in self.students):
                 return ok({}, 409)
             new_uid = f"10000000-0000-4000-8000-{len(self.students)+3:012d}"
-            self.add_student(new_uid, body["name"], body["batch"], body["email"])
+            self.add_student(new_uid, body["name"], body["batch"], body["email"],
+                             class_level=body.get("class_level", 10))
             return ok({"message": "sent"}, 201)
         if path.startswith("/rest/v1/"):
             table = path.removeprefix("/rest/v1/")
@@ -85,6 +93,13 @@ class FakeCloud:
                 rows = [dict(p) for p in self.profiles if teacher or p["id"] == uid]
             elif not active:
                 return ok([], 200) if method == "GET" else ok({}, 403)
+            elif table == "students" and method == "PATCH":
+                if not teacher: return ok({}, 403)
+                target = str(q.get("id", "")).removeprefix("eq.")
+                for s in self.students:
+                    if str(s["id"]) == target:
+                        s.update(body)
+                return httpx.Response(204)
             elif table == "students":
                 rows = [dict(s) for s in self.students if teacher or s["id"] == person["student_id"]]
             elif table == "student_access":
@@ -107,16 +122,54 @@ class FakeCloud:
                     e = next(e for e in self.exams if e["id"] == mark["exam_id"])
                     t = next(t for t in self.topics if t["id"] == mark["topic_id"])
                     sub = next(sub for sub in self.subjects if sub["id"] == mark["subject_id"])
-                    rows.append({"score_id": mark["id"], "student_id": s["id"], "student_name": s["name"], "batch": s["batch"],
-                                 "exam_id": e["id"], "exam_name": e["name"], "exam_date": e["exam_date"], "exam_kind": e["kind"],
-                                 "subject_id": sub["id"], "subject": sub["name"], "topic_id": t["id"], "topic": t["name"],
-                                 "score": mark["score"], "max_score": 100})
+                    rows.append({"score_id": mark["id"], "student_id": s["id"], "student_name": s["name"],
+                                 "batch": s["batch"], "class_level": s["class_level"],
+                                 "exam_id": e["id"], "exam_name": e["name"], "exam_date": e["exam_date"],
+                                 "exam_kind": e["kind"],
+                                 "subject_id": sub["id"], "subject": sub["name"], "topic_id": t["id"],
+                                 "topic": t["name"],
+                                 "score": mark["score"], "max_score": 100,
+                                 "raw_score": mark.get("raw_score"), "raw_max": mark.get("raw_max")})
             elif table == "scores" and method == "POST":
                 if not teacher: return ok({}, 403)
                 old = next((m for m in self.scores if all(m[k] == body[k] for k in ("student_id", "exam_id", "topic_id"))), None)
                 if old: old.update(body)
                 else: self.scores.append({"id": len(self.scores)+1, "max_score": 100, **body})
                 return httpx.Response(201)
+            elif table == "scores" and method == "PATCH":
+                if not teacher: return ok({}, 403)
+                target = str(q.get("id", "")).removeprefix("eq.")
+                for m in self.scores:
+                    if str(m["id"]) == target:
+                        m.update(body)
+                return httpx.Response(204)
+            elif table == "rpc/import_score_records":
+                if not teacher: return ok({}, 403)
+                records = body.get("p_records") or []
+                if not 1 <= len(records) <= 1000:
+                    return ok({"message": "Provide between 1 and 1000 rows"}, 400)
+                for r in records:
+                    existing = next((e for e in self.exams
+                                     if e["name"] == r["exam"] and e["exam_date"] == r["exam_date"]), None)
+                    if not existing:
+                        existing = {"id": len(self.exams) + 1, "name": r["exam"],
+                                    "exam_date": r["exam_date"],
+                                    "kind": r.get("exam_kind") or "Practice Test"}
+                        self.exams.append(existing)
+                    old = next((m for m in self.scores
+                                if m["student_id"] == r["student_id"]
+                                and m["exam_id"] == existing["id"]
+                                and m["topic_id"] == r["topic_id"]), None)
+                    payload = {"subject_id": r["subject_id"], "score": r["score"],
+                               "raw_score": r.get("raw_score"), "raw_max": r.get("raw_max")}
+                    if old:
+                        old.update(payload)
+                    else:
+                        self.scores.append({"id": len(self.scores) + 1, "max_score": 100,
+                                            "student_id": r["student_id"],
+                                            "exam_id": existing["id"],
+                                            "topic_id": r["topic_id"], **payload})
+                return ok(len(records))
             elif table in ("schedule_details", "upcoming_tests"): rows = self.schedule
             elif table == "audit_log": rows = []
             elif table == "rpc/set_student_active":
@@ -124,8 +177,14 @@ class FakeCloud:
                 next(p for p in self.profiles if p["student_id"] == body["p_student_id"])["active"] = body["p_active"]
                 return httpx.Response(204)
             elif table == "rpc/exam_comparison":
+                viewer_class = None
+                if not teacher and person and person.get("student_id"):
+                    viewer_class = next(s["class_level"] for s in self.students
+                                        if s["id"] == person["student_id"])
                 result=[]
                 for student in self.students:
+                    if viewer_class is not None and student["class_level"] != viewer_class:
+                        continue
                     profile=next(p for p in self.profiles if p["student_id"]==student["id"])
                     if not profile["active"]: continue
                     marks=[m["score"] for m in self.scores if m["student_id"]==student["id"] and m["exam_id"]==body["p_exam_id"]

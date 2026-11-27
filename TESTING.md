@@ -15,10 +15,13 @@ HTTP requests are intercepted by `httpx.MockTransport`. No real mail is sent and
 no real passwords or cloud keys are needed. Test-only email domains use
 `example.test`. Coverage includes:
 
-- Exact 2-subject/27-chapter curriculum and migration seed agreement.
+- Per-class curriculum (Classes 8/9/10, 86 chapters) and migration seed
+  agreement; class-scoped chapter lists, multi-topic saves, raw-mark
+  conversion and the teacher class view.
 - User JWT isolation; REST and read-only RPC pagination beyond 1,000 rows.
 - No unauthenticated data writes and no raw provider-secret error echoing.
-- Fresh teacher onboarding, invitation UI, chapter entry and student marks.
+- Fresh teacher onboarding, invitation UI, multi-topic chapter entry and
+  student marks (15/20 → 75%).
 - Individual login, wrong password, refresh, disable, invite callback and URL
   scrubbing, mandatory password setup UI and current-password confirmation.
 - Teacher/student pages in light and dark modes with chart palette assertions.
@@ -42,8 +45,9 @@ deno test --config supabase/functions/manage-students/deno.json --allow-env \
 
 The function SDK dependency graph is locked in its `deno.lock`. Runtime fetches
 are mocked by the tests; no network invitations are sent. Tests deny missing /
-invalid bearer tokens, student callers, inactive staff and invitation-rate
-failures, and verify the teacher-only success path returns no token/key material.
+invalid bearer tokens, student callers, inactive staff, invalid class levels
+and invitation-rate failures, and verify the teacher-only success path returns
+no token/key material.
 
 ## Actual PostgreSQL RLS tests
 
@@ -55,6 +59,8 @@ Supabase's Auth schema/roles only for a local test server.
 createdb exampulse_security_test
 cat tests/local_bootstrap.sql \
     supabase/migrations/202611260001_production.sql \
+    tests/pre_upgrade_schedule.sql \
+    supabase/migrations/202611270001_multi_class_entry.sql \
     tests/rls.sql | psql -X -v ON_ERROR_STOP=1 exampulse_security_test
 ```
 
@@ -71,10 +77,11 @@ Expected final line: `ALL POSTGRESQL RLS TESTS PASSED`.
 
 The SQL tests check anonymous denial, raw/view student row ownership, no role
 escalation, no student writes/imports/invitations, teacher full-class reads,
-service-only provisioning, exact chapter/subject consistency, invalid marks,
-atomic rollback of invalid imports, audit records, invitation-rate locking,
-disabled/unprovisioned account denial, immutable curriculum and the intentionally
-allowed named comparison function.
+service-only provisioning, exact chapter/subject/class consistency (including
+the cross-class score trigger and raw-marks bounds), invalid marks, atomic
+rollback of invalid imports, audit records, invitation-rate locking,
+disabled/unprovisioned account denial, class-scoped peer comparison,
+immutable curriculum and the intentionally allowed named comparison function.
 
 The repository's CI workflow runs the Python, Deno and PostgreSQL suites without
 production secrets. Hosted Supabase behavior still needs the following release gate.

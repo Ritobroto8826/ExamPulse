@@ -40,10 +40,11 @@ def identity() -> dict:
     user = profiles[0]
     user["email"] = person.get("email", "")
     if user["role"] == "student":
-        roster = c.rows("students", {"id": f"eq.{user['student_id']}", "select": "batch"})
+        roster = c.rows("students", {"id": f"eq.{user['student_id']}", "select": "batch,class_level"})
         if not roster:
             raise CloudError("Your student record is unavailable. Contact your teacher.", 403)
         user["batch"] = roster[0]["batch"]
+        user["class_level"] = roster[0]["class_level"]
     return user
 
 

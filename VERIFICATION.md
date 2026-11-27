@@ -1,6 +1,6 @@
 # ExamPulse release verification
 
-Date: 26 November 2026
+Date: 27 November 2026 (multi-class update; original verification below)
 
 ## Executed successfully in the authoring workspace
 
@@ -34,3 +34,19 @@ mocking SQL permission decisions. Their data fixtures roll back.
 Follow DEPLOY_SUPABASE.md and the hosted staging gate in TESTING.md before adding
 real student information. Do not infer successful cloud deployment from local
 suite results.
+
+## Update — Classes 8/9/10 multi-class entry (27 November 2026)
+
+| Check | Result |
+|---|---|
+| Python HTTP/Auth/data/upload tests and Streamlit AppTest UI flows | 21 tests passed |
+| Fresh migrations applied to a disposable PostgreSQL 16.2 (embedded server) | Passed |
+| Real PostgreSQL RLS/grant/trigger/constraint/import tests: cross-class score rejection, raw-marks bounds, class-scoped peer comparison, atomic multi-topic import | `ALL POSTGRESQL RLS TESTS PASSED` |
+| Edge Function TypeScript files parsed (esbuild syntax check) | Passed |
+| Deno Edge Function test suite | **Not re-run in this workspace** (Deno unavailable here). The function changes are code-reviewed; rerun the Deno commands in TESTING.md before release. |
+| Upgrade path with pre-existing data (students + scheduled chapter test) replayed, then RLS suite | Passed |
+| Upgrade migration + `manage-students` Edge Function applied to a hosted Supabase project with live test data | Applied and verified: 86 chapters, backfilled classes/schedule, preserved students/scores, Edge Function v2 active | |
+
+Still required (unchanged): hosted staging/email gate, SMTP and template
+verification, backups/PITR restore drill, and review of the Class 8/9 chapter
+lists against the school's actual syllabus before first deployment.

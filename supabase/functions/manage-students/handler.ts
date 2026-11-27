@@ -50,8 +50,12 @@ export async function handleRequest(request: Request): Promise<Response> {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const batch = typeof body.batch === "string" ? body.batch.trim() : "";
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const classLevel = typeof body.class_level === "number" ? body.class_level : NaN;
   if (!name || name.length > 120 || !batch || batch.length > 80 || email.length > 254 ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return respond(400, "Valid name, batch and email required");
+      !Number.isInteger(classLevel) || classLevel < 1 || classLevel > 12 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return respond(400, "Valid name, class, batch and email required");
+  }
 
   const { error: limitError } = await caller.rpc("claim_invitation");
   if (limitError) return respond(429, "Invitation limit reached; try later");
@@ -63,6 +67,7 @@ export async function handleRequest(request: Request): Promise<Response> {
 
   const { error: provisionError } = await admin.rpc("provision_student", {
     p_user_id: invited.user.id, p_name: name, p_batch: batch, p_email: email,
+    p_class_level: classLevel,
   });
   if (provisionError) {
     // A timeout can hide a successful commit. Check before compensating; never

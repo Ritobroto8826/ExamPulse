@@ -1,14 +1,15 @@
 # ExamPulse — Supabase edition
 
-A responsive academic dashboard with light/dark mode, **Mathematics + Science**,
-Supabase PostgreSQL persistence and individual email/password accounts managed
-by Supabase Auth. This edition starts with a **clean database**: no demo people,
-marks, public accounts or shared student password.
+A responsive academic dashboard with light/dark mode for **Classes 8, 9 and
+10** (**Mathematics + Science**), Supabase PostgreSQL persistence and
+individual email/password accounts managed by Supabase Auth. This edition
+starts with a **clean database**: no demo people, marks, public accounts or
+shared student password.
 
 ## Start here
 
 1. Read **[DEPLOY_SUPABASE.md](DEPLOY_SUPABASE.md)** for the full deployment guide.
-2. Apply the migration to a **fresh Supabase project**.
+2. Apply both migrations to a **fresh Supabase project**.
 3. Configure SMTP/Auth email templates and bootstrap your first teacher.
 4. Deploy the invitation Edge Function and configure the three UI settings.
 5. Invite students; each sets their own private password from their email link.
@@ -40,7 +41,13 @@ not an account-selection dropdown or editable user metadata.
 
 ## Exact curriculum
 
-### Mathematics — 14 chapters
+Each class has its own ordered chapter list. Class 10 is the CBSE/NCERT
+syllabus this edition was built around; **Class 8 and 9 follow the classic
+NCERT chapter lists and must be verified against your school's syllabus
+before first deployment.** Edit `curriculum.py` and the topic seed in
+`supabase/migrations/` together — the test suite enforces that they match.
+
+### Class 10 — Mathematics (14 chapters)
 
 1. Real Numbers
 2. Polynomials
@@ -57,7 +64,7 @@ not an account-selection dropdown or editable user metadata.
 13. Statistics
 14. Probability
 
-### Science — 13 chapters
+### Class 10 — Science (13 chapters)
 
 1. Chemical Reactions and Equations
 2. Acids, Bases and Salts
@@ -73,17 +80,94 @@ not an account-selection dropdown or editable user metadata.
 12. Magnetic Effects of Electric Current
 13. Our Environment
 
-`curriculum.py` and the migration seed contain the same ordered curriculum.
-Scores enforce subject/chapter consistency using a composite foreign key.
-Schedule chapters also reference the approved curriculum.
+### Class 9 — Mathematics (15 chapters)
+
+1. Number Systems
+2. Polynomials
+3. Coordinate Geometry
+4. Linear Equations in Two Variables
+5. Introduction to Euclid's Geometry
+6. Lines and Angles
+7. Triangles
+8. Quadrilaterals
+9. Areas of Parallelograms and Triangles
+10. Circles
+11. Constructions
+12. Heron's Formula
+13. Surface Areas and Volumes
+14. Statistics
+15. Probability
+
+### Class 9 — Science (13 chapters)
+
+1. Matter in Our Surroundings
+2. Is Matter Around Us Pure?
+3. Atoms and Molecules
+4. Structure of the Atom
+5. The Fundamental Unit of Life
+6. Tissues
+7. Motion
+8. Force and Laws of Motion
+9. Gravitation
+10. Work and Energy
+11. Sound
+12. Why Do We Fall Ill?
+13. Improvement in Food Resources
+
+### Class 8 — Mathematics (16 chapters)
+
+1. Rational Numbers
+2. Linear Equations in One Variable
+3. Understanding Quadrilaterals
+4. Practical Geometry
+5. Data Handling
+6. Squares and Square Roots
+7. Cubes and Cube Roots
+8. Comparing Quantities
+9. Algebraic Expressions and Identities
+10. Visualising Solid Shapes
+11. Mensuration
+12. Exponents and Powers
+13. Direct and Inverse Proportions
+14. Factorisation
+15. Introduction to Graphs
+16. Playing with Numbers
+
+### Class 8 — Science (15 chapters)
+
+1. Crop Production and Management
+2. Microorganisms: Friend and Foe
+3. Coal and Petroleum
+4. Combustion and Flame
+5. Conservation of Plants and Animals
+6. Reproduction in Animals
+7. Reaching the Age of Adolescence
+8. Force and Pressure
+9. Friction
+10. Sound
+11. Chemical Effects of Electric Current
+12. Some Natural Phenomena
+13. Light
+14. Stars and the Solar System
+15. Pollution of Air and Water
+
+`curriculum.py` and the migration seeds contain the same ordered curriculum
+(86 chapters across three classes). Every student belongs to one class; score
+entry, CSV imports and the schedule only offer that class's chapters, and a
+database trigger rejects any score whose chapter does not match the student's
+class. Scores also enforce subject/chapter consistency using a composite
+foreign key.
 
 ## Features
 
 ### Teacher
 
 - Class-wide KPIs, trends, weak-topic analytics and progress leaderboard.
-- Individual student drill-downs, one-topic-at-a-time exam score entry, inline
-  edits and deletion. Student roster IDs prevent same-name account mix-ups.
+- Individual student drill-downs and multi-topic exam entry: tick every
+  chapter a test covered, enter **raw marks with their total** (e.g. 15 out of
+  20) and save once — the app stores the converted percentage plus the raw
+  marks. Chapter lists follow the selected student's class. Inline edits and
+  deletion; student roster IDs prevent same-name account mix-ups.
 - Email invitations, individual account activation/deactivation, no shared
   default password, no password visibility for teachers.
 - CSV/XLSX imports with validation and atomic server-side writes; safe CSV reports.
@@ -94,10 +178,11 @@ Schedule chapters also reference the approved curriculum.
 
 - Own-only Dashboard, My Progress, topic recommendations and schedule.
 - Individual email/password login, password recovery and private password changes.
-- Read-only **Student Comparison**, by exam/subject/chapter. As requested, this
-  intentionally shares classmates' **names, batches and exam summary marks**.
-  It does not share emails, Auth user IDs, passwords or account-management access.
-  This privacy choice requires school authorization before real student use.
+- Read-only **Student Comparison**, by exam/subject/chapter, scoped to the
+  viewer's own class. As requested, this intentionally shares classmates'
+  **names, batches and exam summary marks**. It does not share emails, Auth
+  user IDs, passwords or account-management access. This privacy choice
+  requires school authorization before real student use.
 
 ### Interface
 
@@ -105,6 +190,9 @@ Schedule chapters also reference the approved curriculum.
 - Clear chart legends, explicit mastery/benchmark lines and consistent percentage
   axes; contrasting indigo/lavender, teal, coral and amber indicators.
 - User-highlighted, numeric-label comparison bars with 25-student chart pages.
+- Teacher sidebar **Class view** scopes Dashboard, reports and schedule
+  analytics to one class (or All classes); chapter labels are disambiguated
+  when classes are mixed.
 - Theme preference persists through navigation/logout and URL-based refreshes.
 - Missing marks are not zero. Multi-topic comparison uses the mean of recorded
   topic percentages; filter a single chapter for like-for-like comparison.
@@ -114,7 +202,10 @@ Schedule chapters also reference the approved curriculum.
 - PostgreSQL RLS enforces ownership even if someone bypasses the UI.
 - Students cannot create exams, edit marks, invite accounts, promote themselves,
   view staff audits or query other students' raw score/account records.
-- Comparison uses an explicitly authorized, narrow summary function.
+- A database trigger rejects scores whose chapter does not match the
+  student's class, even when written through the API.
+- Comparison uses an explicitly authorized, narrow summary function, and
+  students only ever receive their own class's roster rows from it.
 - Disabled and unprovisioned users are denied school-data access.
 - Invitation function verifies the user with Supabase, checks active teacher role,
   and applies a transaction-safe limit of 20 attempts per teacher per hour.
@@ -142,7 +233,8 @@ student,subject,topic,exam,exam_date,score
 
 `exam_kind` is optional. `student` should be the registered email; a unique full
 name is accepted, but duplicated names must use email. Dates: `YYYY-MM-DD`.
-Marks: finite percentages from 0 to 100. Use only the listed subjects/chapters.
+Marks: finite percentages from 0 to 100. Use only the listed subjects/chapters,
+and each chapter must belong to that student's class.
 Maximum: 5 MB, 1,000 rows per file. Any validation errors must be fixed before
 import; the actual write executes in one PostgreSQL transaction. Re-importing
 matching student/exam/chapter rows updates marks instead of duplicating them.
@@ -168,13 +260,13 @@ auth.py                    Supabase Auth/session/invite/recovery lifecycle
 cloud.py                   Per-user HTTP transport, pagination, safe errors
 database.py                Supabase repository and upload/report validation
 settings.py                Safe API configuration; privileged-key rejection
-curriculum.py              Exact 2-subject / 27-chapter curriculum
+curriculum.py              Exact per-class curriculum (Classes 8/9/10)
 uploads.py                 Bounded CSV/XLSX parsing
 charts.py                  Light/dark Plotly chart builders
 components.py              Cards, rings, lists, badges and mastery bars
 theme.py / styles.py        Session-scoped design tokens and app chrome
 styles.css                 Responsive light/dark styling
-supabase/migrations/       Fresh PostgreSQL schema, RLS, RPCs, curriculum seed
+supabase/migrations/       PostgreSQL schema, RLS, RPCs, curriculum seeds
 supabase/functions/        Teacher-only invitation Edge Function + tests/lock
 supabase/bootstrap_teacher.sql  Trusted first-teacher setup
 .streamlit/                Baseline config and secrets example (no real secrets)

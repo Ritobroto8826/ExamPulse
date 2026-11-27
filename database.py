@@ -10,11 +10,11 @@ import re
 import pandas as pd
 import auth
 from cloud import CloudError
-from curriculum import SUBJECTS
 
-SCORE_COLUMNS = ["score_id", "student_id", "student_name", "batch", "exam_id",
-                 "exam_name", "exam_date", "exam_kind", "subject_id", "subject",
-                 "topic_id", "topic", "score", "max_score"]
+SCORE_COLUMNS = ["score_id", "student_id", "student_name", "batch", "class_level",
+                 "exam_id", "exam_name", "exam_date", "exam_kind", "subject_id",
+                 "subject", "topic_id", "topic", "score", "max_score",
+                 "raw_score", "raw_max"]
 
 
 def init_db() -> None:
@@ -22,28 +22,49 @@ def init_db() -> None:
 
 
 def list_students() -> list[dict]:
-    return auth.client().rows("students", {"select": "id,name,batch,email,joined_date", "order": "batch,name,id"})
+    return auth.client().rows("students", {"select": "id,name,batch,class_level,email,joined_date",
+                                           "order": "class_level,batch,name,id"})
 
 
 def list_student_accounts() -> list[dict]:
-    return auth.client().rows("student_access", {"select": "id,name,batch,email,active", "order": "batch,name,id"})
+    return auth.client().rows("student_access", {"select": "id,name,batch,class_level,email,active",
+                                                 "order": "class_level,batch,name,id"})
 
 
-def invite_student(name: str, batch: str, email: str) -> None:
+def invite_student(name: str, batch: str, email: str, class_level: int) -> None:
     name, batch, email = name.strip(), batch.strip(), email.strip().lower()
     if not 1 <= len(name) <= 120 or not 1 <= len(batch) <= 80:
         raise ValueError("Name and batch are required (maximum 120 and 80 characters).")
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) or len(email) > 254:
         raise ValueError("A valid, unique student email address is required.")
-    auth.client().request("POST", "/functions/v1/manage-students", body={"name": name, "batch": batch, "email": email})
+    level = _validate_class_level(class_level)
+    auth.client().request("POST", "/functions/v1/manage-students",
+                          body={"name": name, "batch": batch, "email": email, "class_level": level})
 
 
 def set_student_active(student_id: int, active: bool) -> None:
     auth.client().rpc("set_student_active", {"p_student_id": int(student_id), "p_active": bool(active)})
 
 
+def set_student_class(student_id: int, class_level: int) -> None:
+    level = _validate_class_level(class_level)
+    auth.client().rest("PATCH", "students", params={"id": f"eq.{int(student_id)}"},
+                       body={"class_level": level})
+
+
+def _validate_class_level(class_level) -> int:
+    try:
+        level = int(class_level)
+    except (TypeError, ValueError):
+        raise ValueError("Choose a class for this student.") from None
+    if not 1 <= level <= 12:
+        raise ValueError("Class must be between 1 and 12.")
+    return level
+
+
 def get_student(student_id: int):
-    rows = auth.client().rows("students", {"id": f"eq.{int(student_id)}", "select": "id,name,batch,email,joined_date"})
+    rows = auth.client().rows("students", {"id": f"eq.{int(student_id)}",
+                                           "select": "id,name,batch,class_level,email,joined_date"})
     return rows[0] if rows else None
 
 
@@ -56,37 +77,35 @@ def list_subjects() -> list[dict]:
     return auth.client().rows("subjects", {"select": "id,name", "order": "position"})
 
 
-def topics_for_subject(subject_name: str) -> list[str]:
+def topics_for_subject(subject_name: str, class_level: int | None = None) -> list[str]:
     subjects = list_subjects()
     sid = next((s["id"] for s in subjects if s["name"] == subject_name), None)
     if sid is None:
         return []
-    return [r["name"] for r in auth.client().rows("topics", {"select": "name", "subject_id": f"eq.{sid}", "order": "position"})]
+    params = {"select": "name", "subject_id": f"eq.{sid}", "order": "class_level,position"}
+    if class_level is not None:
+        params["class_level"] = f"eq.{int(class_level)}"
+    return [r["name"] for r in auth.client().rows("topics", params)]
 
 
-def _topic_ids() -> dict[tuple[str, str], tuple[int, int]]:
+def _topic_ids() -> dict[tuple[int, str, str], tuple[int, int]]:
+    """(class_level, subject, chapter) -> (topic_id, subject_id). Chapter names
+    repeat across classes, so the class is part of the key."""
     subjects = {s["id"]: s["name"] for s in list_subjects()}
-    rows = auth.client().rows("topics", {"select": "id,subject_id,name", "order": "subject_id,position"})
-    return {(subjects[r["subject_id"]], r["name"]): (r["id"], r["subject_id"]) for r in rows}
+    rows = auth.client().rows("topics", {"select": "id,subject_id,name,class_level",
+                                         "order": "class_level,subject_id,position"})
+    return {(int(r["class_level"]), subjects[r["subject_id"]], r["name"]):
+            (r["id"], r["subject_id"]) for r in rows}
 
 
 def list_exams() -> list[dict]:
     return auth.client().rows("exams", {"select": "id,name,exam_date,kind", "order": "exam_date.desc,id.desc"})
 
 
-def add_exam(name: str, exam_date: str, kind: str = "Weekly Test") -> int:
-    if not 1 <= len(name.strip()) <= 160:
-        raise ValueError("Exam name is required (maximum 160 characters).")
-    rows = auth.client().rest("POST", "exams", body={"name": name.strip(), "exam_date": exam_date, "kind": kind},
-                              params={"on_conflict": "name,exam_date"},
-                              prefer="resolution=merge-duplicates,return=representation")
-    return rows[0]["id"]
-
-
 def _score_frame(rows) -> pd.DataFrame:
     frame = pd.DataFrame(rows, columns=SCORE_COLUMNS)
     frame["exam_date"] = pd.to_datetime(frame["exam_date"])
-    for key in ("score", "max_score"):
+    for key in ("score", "max_score", "raw_score", "raw_max"):
         frame[key] = pd.to_numeric(frame[key]).astype(float)
     return frame
 
@@ -107,20 +126,12 @@ def exam_comparison(exam_id: int, subject_id: int | None = None,
     return frame
 
 
-def upsert_score(student_id: int, exam_id: int, subject_id: int,
-                 topic_id: int, score: float) -> None:
-    if not math.isfinite(float(score)) or not 0 <= float(score) <= 100:
-        raise ValueError("Score must be between 0 and 100.")
-    auth.client().rest("POST", "scores", body={"student_id": int(student_id), "exam_id": int(exam_id),
-                       "subject_id": int(subject_id), "topic_id": int(topic_id), "score": float(score)},
-                       params={"on_conflict": "student_id,exam_id,topic_id"},
-                       prefer="resolution=merge-duplicates,return=minimal")
-
-
 def update_score_value(score_id: int, score: float) -> None:
     if not math.isfinite(float(score)) or not 0 <= float(score) <= 100:
         raise ValueError("Score must be between 0 and 100.")
-    auth.client().rest("PATCH", "scores", params={"id": f"eq.{int(score_id)}"}, body={"score": float(score)})
+    # A manual percentage edit supersedes any stored raw marks (15/20 -> 75).
+    auth.client().rest("PATCH", "scores", params={"id": f"eq.{int(score_id)}"},
+                       body={"score": float(score), "raw_score": None, "raw_max": None})
 
 
 def delete_scores(score_ids: list[int]) -> None:
@@ -131,9 +142,18 @@ def delete_scores(score_ids: list[int]) -> None:
 
 
 def recent_scores(limit: int = 120) -> pd.DataFrame:
-    rows = auth.client().rest("GET", "score_details", params={"select": "score_id,student_name,exam_name,exam_date,subject,topic,score", "order": "exam_date.desc,score_id.desc", "limit": int(limit)})
-    frame = pd.DataFrame(rows, columns=["score_id", "student_name", "exam_name", "exam_date", "subject", "topic", "score"])
+    rows = auth.client().rest("GET", "score_details", params={
+        "select": "score_id,student_name,exam_name,exam_date,subject,topic,score,raw_score,raw_max",
+        "order": "exam_date.desc,score_id.desc", "limit": int(limit)})
+    frame = pd.DataFrame(rows, columns=["score_id", "student_name", "exam_name", "exam_date",
+                                        "subject", "topic", "score", "raw_score", "raw_max"])
     frame["score"] = pd.to_numeric(frame["score"]).astype(float)
+    frame["raw_score"] = pd.to_numeric(frame["raw_score"])
+    frame["raw_max"] = pd.to_numeric(frame["raw_max"])
+    frame["marks"] = [
+        f"{m:g}/{o:g}" if pd.notna(m) and pd.notna(o) else ""
+        for m, o in zip(frame["raw_score"], frame["raw_max"])
+    ]
     return frame.rename(columns={"student_name": "student", "exam_name": "exam"})
 
 
@@ -156,10 +176,12 @@ def resolve_upload(raw: pd.DataFrame) -> tuple[list[dict], list[dict]]:
         return [], [{"row": "-", "field": "file", "error": "Import at most 1,000 rows per file."}]
     students = list_students()
     emails = {s["email"].casefold(): s["id"] for s in students}
+    student_class = {s["id"]: int(s["class_level"]) for s in students}
     names = {}
     for student in students:
         names.setdefault(student["name"].casefold(), []).append(student["id"])
-    topic_map = {(s.casefold(), t.casefold()): (tid, sid) for (s, t), (tid, sid) in _topic_ids().items()}
+    topic_map = {(cl, s.casefold(), t.casefold()): (tid, sid)
+                 for (cl, s, t), (tid, sid) in _topic_ids().items()}
     records, errors, seen = [], [], set()
     for index, (_, row) in enumerate(df.iterrows(), 2):
         def error(field, message):
@@ -173,9 +195,10 @@ def resolve_upload(raw: pd.DataFrame) -> tuple[list[dict], list[dict]]:
                 continue
             sid = matches[0]
         subject, topic = str(row["subject"]).strip(), str(row["topic"]).strip()
-        ids = topic_map.get((subject.casefold(), topic.casefold()))
+        ids = topic_map.get((student_class[sid], subject.casefold(), topic.casefold()))
         if ids is None:
-            error("topic", "Select a chapter from the supported Mathematics/Science curriculum.")
+            error("topic", "Select a chapter from this student's class curriculum "
+                           "(Mathematics/Science).")
             continue
         exam = str(row["exam"]).strip()
         if not exam or exam.lower() == "nan" or len(exam) > 160:
@@ -217,13 +240,16 @@ def resolve_upload(raw: pd.DataFrame) -> tuple[list[dict], list[dict]]:
 
 
 def list_upcoming() -> list[dict]:
-    return auth.client().rows("schedule_details", {"select": "id,title,test_date,topic,notes,subject", "order": "test_date,id"})
+    return auth.client().rows("schedule_details", {"select": "id,title,test_date,topic,notes,subject,class_level",
+                                                   "order": "test_date,id"})
 
 
 def add_upcoming(title: str, test_date: str, subject_id=None,
-                 topic: str = "", notes: str = "") -> None:
+                 topic: str = "", notes: str = "", class_level: int | None = None) -> None:
     auth.client().rest("POST", "upcoming_tests", body={"title": title.strip(), "test_date": test_date,
-                       "subject_id": subject_id, "topic": topic.strip() or None, "notes": notes.strip()})
+                       "subject_id": subject_id, "topic": topic.strip() or None,
+                       "notes": notes.strip(),
+                       "class_level": int(class_level) if class_level is not None else None})
 
 
 def delete_upcoming(test_id: int) -> None:
