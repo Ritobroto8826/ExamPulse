@@ -1,4 +1,8 @@
 /* BrightSteps Tuition / Workspace design system. Colors come from theme.py per session. */
+/* Inter was referenced everywhere but never loaded — devices silently fell back
+   to Roboto/Segoe. Free Google Fonts, variable weight (covers our 400–750),
+   display=swap so text paints immediately in the system font and swaps. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400..900&display=swap");
 html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
   background: var(--bg) !important; color: var(--ink) !important;
   font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
