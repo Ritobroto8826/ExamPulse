@@ -277,6 +277,14 @@ DEPLOY_SUPABASE.md          Deployment, Auth/email templates and operations guid
 TESTING.md                 Tests and hosted staging release gate
 ```
 
+## Android app (APK)
+
+`mobile/` wraps the deployed site in a Capacitor shell — launcher icon,
+splash screen, no address bar — built free by
+`.github/workflows/build-apk.yml` and sideloaded to phones (no Play Store,
+no fees). It is purely additive: `app.py`, tests and the Streamlit deploy
+are untouched. See `mobile/README.md` for build/install steps.
+
 The former SQLite database and application were preserved separately under
 `backups/` in the authoring workspace. They are intentionally **excluded** from
 this production source archive and are not read by this app. Keep any older
