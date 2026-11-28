@@ -9,6 +9,7 @@ import auth
 from cloud import CloudClient
 from settings import Settings
 from fake_cloud import FakeCloud
+from theme import DARK as THEME_DARK, LIGHT as THEME_LIGHT
 
 ROOT=Path(__file__).resolve().parents[1]
 CONFIG=Settings("https://project.example.test","sb_publishable_unit_tests_only","https://app.example.test")
@@ -252,7 +253,8 @@ class CloudUITests(unittest.TestCase):
                     at.radio(key="nav").set_value(page);at.run();self.check(at)
                     for element in at.get("plotly_chart"):
                         spec=json.loads(element.proto.spec)
-                        self.assertEqual(spec["layout"]["paper_bgcolor"],"#131F31" if mode else "#FFFFFF")
+                        self.assertEqual(spec["layout"]["paper_bgcolor"],
+                                         THEME_DARK["card"] if mode else THEME_LIGHT["card"])
                 at.button(key="logout_btn").click();at.run();self.check(at)
                 self.assertEqual(at.session_state["dark_mode"],mode)
                 self.assertTrue(any(x.label=="Email address" for x in at.text_input))

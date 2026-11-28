@@ -8,7 +8,7 @@ from datetime import datetime
 # Helpers
 # ---------------------------------------------------------------------------
 
-AVATAR_COLORS = ["#6C5CE7", "#0EA96D", "#F59E0B", "#EF4444", "#3B82F6", "#8B5CF6"]
+AVATAR_COLORS = ["#7C3AED", "#10B981", "#F59E0B", "#EF4444", "#3B82F6", "#EC4899"]
 
 
 def esc(value) -> str:
@@ -33,12 +33,12 @@ def band(value: float, threshold: int) -> tuple[str, str, str]:
     Green >= 80, Blue 70-79, Amber 60-69, Coral < 60.
     """
     if value >= threshold + 10:
-        return "#10B981", "Strong", "pill-green"
+        return "#22C55E", "Strong", "pill-green"
     if value >= threshold:
         return "#3B82F6", "On Track", "pill-blue"
     if value >= threshold - 10:
         return "#F59E0B", "Needs Focus", "pill-amber"
-    return "#FF6B6B", "Critical", "pill-coral"
+    return "#EF4444", "Critical", "pill-coral"
 
 
 # ---------------------------------------------------------------------------
