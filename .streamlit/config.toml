@@ -14,7 +14,6 @@ headless = true
 maxUploadSize = 5
 enableXsrfProtection = true
 enableCORS = true
-enableStaticServing = true
 
 [client]
 showErrorDetails = false
