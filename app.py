@@ -357,7 +357,8 @@ def render_sidebar(user: dict) -> None:
         st.markdown('<div class="side-sep"></div>', unsafe_allow_html=True)
         pages = TEACHER_PAGES if user["role"] == "teacher" else STUDENT_PAGES
         st.radio("Navigation", pages, key="nav", label_visibility="collapsed",
-                 format_func=lambda page: page.partition(" ")[2])
+                 format_func=lambda page: page.partition(" ")[2],
+                 on_change=_nav_from_sidebar)
         # Soft refresh: re-fetch everything from the cloud, keep the session
         # (no logout, form and chart state preserved).
         if st.button("🔄 Refresh data", key="soft_refresh", width="stretch",
@@ -403,6 +404,42 @@ def render_sidebar(user: dict) -> None:
 # ---------------------------------------------------------------------------
 # Dashboard (shared by teacher, student and teacher drill-down)
 # ---------------------------------------------------------------------------
+
+_MOBILE_NAV_LABELS = {
+    "📊 Dashboard": "Dashboard",
+    "🧑‍🏫 Students & Scores": "Students",
+    "📤 Bulk Upload & Reports": "Upload",
+    "📅 Schedule": "Schedule",
+    "🔐 Account & Security": "Account",
+    "📈 My Progress": "Progress",
+    "📅 Upcoming Tests": "Tests",
+    "📊 Student Comparison": "Compare",
+}
+
+
+def _nav_from_mobile() -> None:
+    """A tap on the phone bar becomes the canonical nav value."""
+    st.session_state["nav"] = st.session_state.get("nav_mob")
+
+
+def _nav_from_sidebar() -> None:
+    """Keep the (hidden) phone bar aligned after a desktop/drawer change."""
+    st.session_state["nav_mob"] = st.session_state.get("nav")
+
+
+def render_mobile_nav(user: dict) -> None:
+    """Second navigation control, fixed to the bottom of the screen on phones.
+
+    CSS hides it above 768px (the sidebar radio stays the desktop control).
+    Both directions sync through on_change so either control can drive the
+    page; the two widgets share the same options and short labels.
+    """
+    pages = TEACHER_PAGES if user["role"] == "teacher" else STUDENT_PAGES
+    st.radio("Navigate", pages, key="nav_mob", label_visibility="collapsed",
+             horizontal=True, on_change=_nav_from_mobile,
+             format_func=lambda page: _MOBILE_NAV_LABELS.get(
+                 page, page.partition(" ")[2]))
+
 
 def render_dashboard(df: pd.DataFrame, role: str, student_id: int | None = None,
                      subtitle: str | None = None) -> None:
@@ -1598,6 +1635,7 @@ def _main() -> None:
         render_password_form(user, setup=True)
         return
     render_sidebar(user)
+    render_mobile_nav(user)
     notice = st.session_state.pop("account_notice", None)
     if notice:
         st.success(notice)

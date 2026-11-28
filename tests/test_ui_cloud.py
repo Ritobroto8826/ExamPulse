@@ -41,6 +41,22 @@ class CloudUITests(unittest.TestCase):
         incidents=[e.value for e in at.error if "reference" in str(e.value)]
         self.assertFalse(incidents,str(incidents))
 
+    def test_phone_nav_bar_switches_pages(self):
+        # The fixed bottom bar (key nav_mob) exists beside the sidebar nav and
+        # either control can drive the page through its on_change sync.
+        self.setup_cloud()
+        at=AppTest.from_file(str(ROOT/"app.py"),default_timeout=30).run();self.check(at)
+        login(at,"staff@example.test","staff-only-test-passphrase");self.check(at)
+        nav=at.radio(key="nav"); mob=at.radio(key="nav_mob")
+        # .options returns the formatted labels: same pages, short phone names.
+        self.assertEqual(len(nav.options), len(mob.options))
+        self.assertEqual(mob.options[1], "Students")
+        # Fresh handles after every run — AppTest widgets bind per run.
+        mob.set_value("📅 Schedule"); at.run(); self.check(at)
+        self.assertEqual(at.session_state["nav"], "📅 Schedule")
+        at.radio(key="nav").set_value("📊 Dashboard"); at.run(); self.check(at)
+        self.assertEqual(at.session_state.get("nav_mob"), "📊 Dashboard")
+
     def test_fresh_teacher_invites_student_and_marks_appear(self):
         fake=self.setup_cloud()
         teacher=AppTest.from_file(str(ROOT/"app.py"),default_timeout=30).run()
