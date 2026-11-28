@@ -2,12 +2,16 @@
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 from streamlit.testing.v1 import AppTest
 
+from settings import Settings
+
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "static"
+CONFIG = Settings("https://project.example.test", "sb_publishable_unit_tests_only", "https://app.example.test")
 
 
 class ManifestTests(unittest.TestCase):
@@ -60,6 +64,24 @@ class ManifestTests(unittest.TestCase):
 
 
 class InjectionTests(unittest.TestCase):
+    def test_page_icon_is_served_from_static(self):
+        # A file-path page_icon depends on the media manager; the static URL
+        # resolves directly and gives Chrome one stable href to cache.
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn('page_icon="/app/static/icon-192.png"', source)
+
+    def test_login_page_offers_install_link(self):
+        # The login hero (with the install CTA) only renders past the
+        # settings gate — patch it exactly like test_ui_cloud does.
+        with patch("settings.load_settings", return_value=CONFIG), patch(
+            "auth.load_settings", return_value=CONFIG
+        ):
+            at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=30).run()
+        self.assertFalse(at.exception, str(at.exception))
+        markup = " ".join(str(m.value) for m in at.markdown)
+        self.assertIn('href="/app/static/install.html"', markup)
+        self.assertIn("Install as app", markup)
+
     def test_app_declares_manifest_and_touch_icon(self):
         # Module-level injection runs before the settings gate, so no cloud patch needed.
         at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=30).run()

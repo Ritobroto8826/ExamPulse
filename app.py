@@ -6,14 +6,15 @@ Student role : own progress/weak topics/schedule; read-only peer exam comparison
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 st.set_page_config(
     page_title="BrightSteps Tuition · Score Tracker",
-    page_icon=str(Path(__file__).resolve().parent / "static" / "icon-192.png"),
+    # Served straight from static/ — no media-manager hop, stable URL for
+    # Chrome's favicon cache (the old Streamlit logo sticks otherwise).
+    page_icon="/app/static/icon-192.png",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
