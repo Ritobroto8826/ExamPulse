@@ -1,4 +1,4 @@
-/* ExamPulse / Workspace design system. Colors come from theme.py per session. */
+/* BrightSteps Tuition / Workspace design system. Colors come from theme.py per session. */
 html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
   background: var(--bg) !important; color: var(--ink) !important;
   font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;

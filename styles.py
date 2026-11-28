@@ -43,9 +43,9 @@ def render_app_chrome() -> None:
                 '<svg width="22" height="22" viewBox="0 0 24 24" fill="none">'
                 '<path d="M3 16h4l3-9 4 13 3-9h4" stroke="currentColor" '
                 'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'
-                '</svg></div><div><div class="brand-name">ExamPulse'
-                '<span class="brand-tag">WORKSPACE</span></div>'
-                '<div class="brand-caption">Clarity for every learner.</div></div></div>',
+                '</svg></div><div><div class="brand-name">BrightSteps'
+                '<span class="brand-tag">PRIVATE TUITION</span></div>'
+                '<div class="brand-caption">Small batches, big leaps.</div></div></div>',
                 unsafe_allow_html=True,
             )
         with control:
