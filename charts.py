@@ -97,7 +97,7 @@ def score_bar_chart(df: pd.DataFrame, dim: str, threshold: int,
         full_labels = [escape(label) for label in labels]
         values = g["score"].tolist()
 
-    colors = [p["accent"] if v >= threshold else p["coral"] for v in values]
+    colors = [p["green"] if v >= threshold else p["coral"] for v in values]
     fig = go.Figure(go.Bar(
         x=labels, y=values, marker_color=colors, customdata=full_labels,
         hovertemplate="%{customdata}<br><b>%{y:.1f}%</b><extra></extra>",
