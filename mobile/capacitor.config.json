@@ -1,0 +1,14 @@
+{
+  "appId": "app.brightsteps.tuition",
+  "appName": "BrightSteps",
+  "webDir": "www",
+  "backgroundColor": "#7C3AED",
+  "server": {
+    "url": "https://exampulse.streamlit.app",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  }
+}
