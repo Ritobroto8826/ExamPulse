@@ -2,3 +2,7 @@ node_modules/
 android/
 icons/
 *.log
+# Signing material — never committed (public repo); stored as GitHub Actions secrets instead.
+release.keystore
+*.b64.txt
+release-keystore-password.txt

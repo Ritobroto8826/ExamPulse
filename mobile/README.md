@@ -18,6 +18,18 @@ Every push that touches `mobile/` builds automatically:
    (a `.zip` containing `app-debug.apk`)
 4. Or trigger manually: **Run workflow** on that screen
 
+## Release signing (removes the "suspicious app" label)
+
+Debug-keyed APKs trip Play Protect. CI therefore signs with a proper
+**release keystore** stored as GitHub Actions secrets:
+
+- `ANDROID_KEYSTORE_B64` — base64 of `release.keystore`
+- `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`brightsteps`), `ANDROID_KEY_PASSWORD`
+
+If the secrets are missing, the workflow falls back to a debug build and
+prints a warning. **Back the keystore file up somewhere safe** — without it,
+future updates can't install over existing ones (users would uninstall/reinstall).
+
 ## Build locally (optional)
 
 Needs Node 20+, JDK 17, and the Android SDK (Android Studio is the easy way).
