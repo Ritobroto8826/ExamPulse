@@ -68,6 +68,35 @@ class PopupCssTests(unittest.TestCase):
                           f"slider rail must pass through {token}")
 
 
+class MobileLayoutTests(unittest.TestCase):
+    """Phone widths: readable type floor, thumb-sized targets, tighter spacing."""
+
+    @staticmethod
+    def _mobile_blocks():
+        # The two blocks in this file differ only by whitespace after @media.
+        return re.findall(r"@media\s*\(max-width:768px\)\s*\{(.*?)\n\}", CSS, re.S)
+
+    def test_no_undersized_captions_on_phones(self):
+        # Both 768px blocks win over base rules — neither may drop below 11px.
+        blocks = self._mobile_blocks()
+        self.assertEqual(len(blocks), 2, "expected both max-width:768px media blocks")
+        for body in blocks:
+            self.assertNotIn("font-size:9px", body)
+            self.assertNotIn("font-size:10px", body,
+                             "mobile captions must keep an 11px floor")
+
+    def test_mobile_touch_targets_are_thumb_sized(self):
+        joined = "\n".join(self._mobile_blocks())
+        self.assertIn('[data-testid="stRadioOption"] { min-height:44px', joined)
+        self.assertIn('[data-testid="stExpander"] div[role="button"] { min-height:44px', joined)
+        self.assertIn('[data-testid="stTabs"] button { min-height:44px', joined)
+        self.assertIn('input[type="text"]', joined)
+
+    def test_mobile_spacing_is_tighter_than_desktop(self):
+        self.assertIn("padding:4.1rem 14px 2.25rem", CSS)
+        self.assertIn("gap:14px", self._mobile_blocks()[0])
+
+
 class PaletteTests(unittest.TestCase):
     def test_red_yellow_green_are_first_class_in_both_modes(self):
         self.assertEqual(LIGHT["green"], "#22C55E")
