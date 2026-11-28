@@ -6,15 +6,42 @@ Student role : own progress/weak topics/schedule; read-only peer exam comparison
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 st.set_page_config(
     page_title="BrightSteps Tuition · Score Tracker",
-    page_icon="🎯",
+    page_icon=str(Path(__file__).resolve().parent / "static" / "icon-192.png"),
     layout="wide",
     initial_sidebar_state="collapsed",
+)
+
+# PWA polish: Chromium/WebKit only honour manifest & apple-touch-icon links that
+# live in the document <head>, which Streamlit never writes — so append them from
+# the page itself (guarded, idempotent), plus body-level fallback links for
+# Firefox. The offscreen image triggers the handler on load (and on error, so a
+# missing icon file cannot silently disable the head links).
+_PWA_HEAD_JS = (
+    "(function(){var h=document.head;if(!h)return;"
+    "if(!h.querySelector('link[rel=manifest]')){var m=document.createElement('link');"
+    "m.rel='manifest';m.href='/app/static/manifest.json';h.appendChild(m);}"
+    "if(!h.querySelector('link[rel=apple-touch-icon]')){var a=document.createElement('link');"
+    "a.rel='apple-touch-icon';a.href='/app/static/apple-touch-icon.png';h.appendChild(a);}"
+    "if(!h.querySelector('meta[name=theme-color]')){var t=document.createElement('meta');"
+    "t.name='theme-color';t.content='#7C3AED';h.appendChild(t);}"
+    "if(!h.querySelector('meta[name=apple-mobile-web-app-capable]')){var c=document.createElement('meta');"
+    "c.name='apple-mobile-web-app-capable';c.content='yes';h.appendChild(c);}"
+    "})()"
+)
+st.markdown(
+    '<link rel="manifest" href="/app/static/manifest.json">'
+    '<link rel="apple-touch-icon" href="/app/static/apple-touch-icon.png">'
+    f'<img src="/app/static/icon-192.png" alt="" aria-hidden="true" '
+    f'style="position:absolute;left:-9999px;width:1px;height:1px" '
+    f'onload="{_PWA_HEAD_JS}" onerror="{_PWA_HEAD_JS}">',
+    unsafe_allow_html=True,
 )
 
 import auth
