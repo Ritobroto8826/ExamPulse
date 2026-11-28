@@ -15,6 +15,12 @@ jobs:
     defaults:
       run:
         working-directory: mobile
+    env:
+      ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/mobile/release.keystore
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
 
@@ -36,13 +42,51 @@ jobs:
           npx capacitor-assets generate
           npx cap sync android
 
-      - name: Build debug APK
+      - name: Apply release signing (skipped until secrets exist)
+        shell: bash
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_B64" ]; then
+            echo "::warning::Release-keystore secrets not configured — falling back to DEBUG signing (Play Protect flags debug builds as suspicious)."
+            exit 0
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 -d > release.keystore
+          cat >> android/app/build.gradle <<'EOF'
+
+          // Release signing from CI secrets — the Android debug key makes
+          // Play Protect label the APK "suspicious".
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv("ANDROID_KEYSTORE_PATH"))
+                      storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                      keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                  }
+              }
+          }
+          EOF
+          echo "Release signing applied."
+
+      - name: Build APK (release when signed, debug fallback)
         shell: bash
         run: |
           set -o pipefail
           cd android
-          sh ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../gradle-build.log
-          ls -la app/build/outputs/apk/debug/app-debug.apk
+          if [ -f ../release.keystore ]; then
+            TARGET=assembleRelease
+            OUT=app/build/outputs/apk/release/app-release.apk
+          else
+            TARGET=assembleDebug
+            OUT=app/build/outputs/apk/debug/app-debug.apk
+          fi
+          echo "Building $TARGET"
+          sh ./gradlew "$TARGET" --no-daemon --stacktrace 2>&1 | tee ../gradle-build.log
+          ls -la "$OUT"
 
       - name: Surface gradle errors as annotations
         if: failure()
@@ -62,6 +106,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: brightsteps-apk
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          path: mobile/android/app/build/outputs/apk/*/*.apk
           if-no-files-found: error
           retention-days: 30
