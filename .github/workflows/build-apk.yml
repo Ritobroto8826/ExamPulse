@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
       - name: Generate Android project, icons, sync config
         run: |
@@ -48,7 +48,15 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          tail -25 gradle-build.log 2>/dev/null | sed 's/^/::error::/' || true
+          LOG=gradle-build.log
+          [ -f "$LOG" ] || { echo "::error::gradle-build.log missing"; exit 0; }
+          hits=$(grep -E "FAILURE:|Execution failed for task|What went wrong|Caused by:|Could not resolve|Failed to find|error:" "$LOG" | head -30)
+          if [ -n "$hits" ]; then
+            echo "$hits" | sed 's/^/::error::/'
+          else
+            head -40 "$LOG" | sed 's/^/::error::/'
+          fi
+          sed -n '/What went wrong/{n;p;}' "$LOG" | sed 's/^/::error::/'
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
