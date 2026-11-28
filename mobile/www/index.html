@@ -1,7 +1,20 @@
 <!doctype html>
 <html>
-  <head><meta charset="utf-8"><title>BrightSteps</title></head>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BrightSteps</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #7C3AED; }
+      body { display: grid; place-items: center; }
+    </style>
+  </head>
   <body>
-    <!-- Placeholder only: capacitor.config.json server.url loads the live app. -->
+    <!-- Heartbeat frame: shown only for an instant before the live app loads,
+         so the boot background looks branded instead of broken. -->
+    <svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="#ffffff"
+         stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3,16 7,16 10,7 14,20 17,11 21,11"/>
+    </svg>
   </body>
 </html>
