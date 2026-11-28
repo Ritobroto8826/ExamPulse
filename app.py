@@ -469,7 +469,7 @@ def render_dashboard(df: pd.DataFrame, role: str, student_id: int | None = None,
     left, mid, right = st.columns([1.5, 1, 1], gap="medium")
 
     with left:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head(
                 "Score performance",
                 "Average marks across recorded topics. Use the filters to explore.",
@@ -499,7 +499,7 @@ def render_dashboard(df: pd.DataFrame, role: str, student_id: int | None = None,
                             config=CHART_CONFIG, key="bar_main")
 
     with mid:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head("Upcoming tests"),
                         unsafe_allow_html=True)
             items = upcoming_items(3)
@@ -513,7 +513,7 @@ def render_dashboard(df: pd.DataFrame, role: str, student_id: int | None = None,
                 )
 
     with right:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             if role == "teacher":
                 st.markdown(card_head("Top academic progress",
                                       "Biggest improvement: early term → now"),
@@ -533,7 +533,7 @@ def render_dashboard(df: pd.DataFrame, role: str, student_id: int | None = None,
     bl, br = st.columns([1.35, 1], gap="medium")
 
     with bl:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head("Performance over time",
                                   "Score progression over time"),
                         unsafe_allow_html=True)
@@ -552,7 +552,7 @@ def render_dashboard(df: pd.DataFrame, role: str, student_id: int | None = None,
                             config=CHART_CONFIG, key="trend_main")
 
     with br:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head("Mastery breakdown",
                                   "Mastery color scale, weakest first"),
                         unsafe_allow_html=True)
@@ -1150,7 +1150,7 @@ def render_upload_page(df: pd.DataFrame) -> None:
     c1, c2 = st.columns([1, 1], gap="medium")
 
     with c1:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head(
                 "📤 Upload scores",
                 "Columns: student, subject, topic, exam, exam_date, score "
@@ -1209,7 +1209,7 @@ def render_upload_page(df: pd.DataFrame) -> None:
                             st.rerun()
 
     with c2:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head(
                 "📥 One-click reports",
                 f"Exports reflect the current {threshold}% mastery threshold",
@@ -1290,7 +1290,7 @@ def render_schedule_page(role: str, df: pd.DataFrame,
     c1, c2 = st.columns([1.25, 1], gap="medium")
 
     with c1:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head(
                 "Upcoming tests" if is_teacher
                 else "Upcoming Tests",
@@ -1365,7 +1365,7 @@ def render_schedule_page(role: str, df: pd.DataFrame,
 
     with c2:
         if is_teacher:
-            with st.container(border=True):
+            with st.container(border=True, height="stretch"):
                 st.markdown(card_head(
                     "Revision hotspots",
                     "Weakest class topics — target these before the next test",
@@ -1376,7 +1376,7 @@ def render_schedule_page(role: str, df: pd.DataFrame,
                     rows = focus_rows(df, threshold, limit=6)
                     st.markdown(leaderboard_html(rows), unsafe_allow_html=True)
         else:
-            with st.container(border=True):
+            with st.container(border=True, height="stretch"):
                 st.markdown(card_head(
                     "🎯 Revision targets",
                     "Topics below your mastery threshold — revise these first",
@@ -1416,7 +1416,7 @@ def render_my_progress(df: pd.DataFrame, user: dict) -> None:
     left, right = st.columns([1.5, 1], gap="medium")
 
     with left:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head("Performance over time",
                                   "Your score progression vs. target"),
                         unsafe_allow_html=True)
@@ -1430,7 +1430,7 @@ def render_my_progress(df: pd.DataFrame, user: dict) -> None:
                             config=CHART_CONFIG, key="mp_trend")
 
     with right:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head("Snapshot"), unsafe_allow_html=True)
             stats = topic_stats(sdf, threshold)
             best = stats.iloc[-1] if not stats.empty else None
@@ -1458,7 +1458,7 @@ def render_my_progress(df: pd.DataFrame, user: dict) -> None:
     b1, b2 = st.columns([1, 1], gap="medium")
 
     with b1:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head("Mastery breakdown",
                                   "Mastery color scale, weakest first"),
                         unsafe_allow_html=True)
@@ -1475,7 +1475,7 @@ def render_my_progress(df: pd.DataFrame, user: dict) -> None:
                         unsafe_allow_html=True)
 
     with b2:
-        with st.container(border=True):
+        with st.container(border=True, height="stretch"):
             st.markdown(card_head(
                 "Weak-area recommendations",
                 f"Every topic averaging under {threshold}%",
