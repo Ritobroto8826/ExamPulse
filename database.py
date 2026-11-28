@@ -5,11 +5,45 @@ Schema/permissions are deployed separately from supabase/migrations/.
 """
 from __future__ import annotations
 from datetime import date, datetime, timedelta
+import copy
 import math
 import re
+import time
+
 import pandas as pd
+import streamlit as st
+
 import auth
 from cloud import CloudError
+
+# Session-local read cache. RLS scopes every row set to the caller, so entries
+# must never be shared across sessions the way a global st.cache_data would:
+# each Streamlit session keeps its own store for this long. Every write below
+# calls invalidate_cache(), and the sidebar soft-refresh button does too.
+_CACHE_TTL_SECONDS = 120.0
+
+
+def _cached(key: str, producer):
+    """Memoize a read for _CACHE_TTL_SECONDS inside this session only."""
+    try:
+        store = st.session_state.setdefault("_db_read_cache", {})
+    except Exception:  # non-Streamlit caller (scripts, bare tests)
+        return producer()
+    now = time.monotonic()
+    hit = store.get(key)
+    if hit is not None and now - hit[0] <= _CACHE_TTL_SECONDS:
+        return copy.deepcopy(hit[1])
+    value = producer()
+    store[key] = (now, value)
+    return copy.deepcopy(value)
+
+
+def invalidate_cache() -> None:
+    """Drop memoized reads after a write or a manual refresh."""
+    try:
+        st.session_state.pop("_db_read_cache", None)
+    except Exception:  # non-Streamlit caller (scripts, bare tests)
+        pass
 
 SCORE_COLUMNS = ["score_id", "student_id", "student_name", "batch", "class_level",
                  "exam_id", "exam_name", "exam_date", "exam_kind", "subject_id",
@@ -22,13 +56,15 @@ def init_db() -> None:
 
 
 def list_students() -> list[dict]:
-    return auth.client().rows("students", {"select": "id,name,batch,class_level,email,joined_date",
-                                           "order": "class_level,batch,name,id"})
+    return _cached("list_students", lambda: auth.client().rows(
+        "students", {"select": "id,name,batch,class_level,email,joined_date",
+                     "order": "class_level,batch,name,id"}))
 
 
 def list_student_accounts() -> list[dict]:
-    return auth.client().rows("student_access", {"select": "id,name,batch,class_level,email,active",
-                                                 "order": "class_level,batch,name,id"})
+    return _cached("list_student_accounts", lambda: auth.client().rows(
+        "student_access", {"select": "id,name,batch,class_level,email,active",
+                           "order": "class_level,batch,name,id"}))
 
 
 def invite_student(name: str, batch: str, email: str, class_level: int) -> None:
@@ -40,16 +76,19 @@ def invite_student(name: str, batch: str, email: str, class_level: int) -> None:
     level = _validate_class_level(class_level)
     auth.client().request("POST", "/functions/v1/manage-students",
                           body={"name": name, "batch": batch, "email": email, "class_level": level})
+    invalidate_cache()
 
 
 def set_student_active(student_id: int, active: bool) -> None:
     auth.client().rpc("set_student_active", {"p_student_id": int(student_id), "p_active": bool(active)})
+    invalidate_cache()
 
 
 def set_student_class(student_id: int, class_level: int) -> None:
     level = _validate_class_level(class_level)
     auth.client().rest("PATCH", "students", params={"id": f"eq.{int(student_id)}"},
                        body={"class_level": level})
+    invalidate_cache()
 
 
 def _validate_class_level(class_level) -> int:
@@ -63,43 +102,53 @@ def _validate_class_level(class_level) -> int:
 
 
 def get_student(student_id: int):
-    rows = auth.client().rows("students", {"id": f"eq.{int(student_id)}",
-                                           "select": "id,name,batch,class_level,email,joined_date"})
-    return rows[0] if rows else None
+    def fetch():
+        rows = auth.client().rows("students", {"id": f"eq.{int(student_id)}",
+                                               "select": "id,name,batch,class_level,email,joined_date"})
+        return rows[0] if rows else None
+    return _cached(f"get_student:{int(student_id)}", fetch)
 
 
 def students_joined_since(days: int) -> int:
-    cutoff = (date.today() - timedelta(days=days)).isoformat()
-    return len(auth.client().rows("students", {"select": "id", "joined_date": f"gte.{cutoff}"}))
+    def fetch():
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        return len(auth.client().rows("students", {"select": "id", "joined_date": f"gte.{cutoff}"}))
+    return _cached(f"students_joined_since:{int(days)}", fetch)
 
 
 def list_subjects() -> list[dict]:
-    return auth.client().rows("subjects", {"select": "id,name", "order": "position"})
+    return _cached("list_subjects", lambda: auth.client().rows(
+        "subjects", {"select": "id,name", "order": "position"}))
 
 
 def topics_for_subject(subject_name: str, class_level: int | None = None) -> list[str]:
-    subjects = list_subjects()
-    sid = next((s["id"] for s in subjects if s["name"] == subject_name), None)
-    if sid is None:
-        return []
-    params = {"select": "name", "subject_id": f"eq.{sid}", "order": "class_level,position"}
-    if class_level is not None:
-        params["class_level"] = f"eq.{int(class_level)}"
-    return [r["name"] for r in auth.client().rows("topics", params)]
+    def fetch():
+        subjects = list_subjects()
+        sid = next((s["id"] for s in subjects if s["name"] == subject_name), None)
+        if sid is None:
+            return []
+        params = {"select": "name", "subject_id": f"eq.{sid}", "order": "class_level,position"}
+        if class_level is not None:
+            params["class_level"] = f"eq.{int(class_level)}"
+        return [r["name"] for r in auth.client().rows("topics", params)]
+    return _cached(f"topics_for_subject:{subject_name}:{class_level}", fetch)
 
 
 def _topic_ids() -> dict[tuple[int, str, str], tuple[int, int]]:
     """(class_level, subject, chapter) -> (topic_id, subject_id). Chapter names
     repeat across classes, so the class is part of the key."""
-    subjects = {s["id"]: s["name"] for s in list_subjects()}
-    rows = auth.client().rows("topics", {"select": "id,subject_id,name,class_level",
-                                         "order": "class_level,subject_id,position"})
-    return {(int(r["class_level"]), subjects[r["subject_id"]], r["name"]):
-            (r["id"], r["subject_id"]) for r in rows}
+    def fetch():
+        subjects = {s["id"]: s["name"] for s in list_subjects()}
+        rows = auth.client().rows("topics", {"select": "id,subject_id,name,class_level",
+                                             "order": "class_level,subject_id,position"})
+        return {(int(r["class_level"]), subjects[r["subject_id"]], r["name"]):
+                (r["id"], r["subject_id"]) for r in rows}
+    return _cached("_topic_ids", fetch)
 
 
 def list_exams() -> list[dict]:
-    return auth.client().rows("exams", {"select": "id,name,exam_date,kind", "order": "exam_date.desc,id.desc"})
+    return _cached("list_exams", lambda: auth.client().rows(
+        "exams", {"select": "id,name,exam_date,kind", "order": "exam_date.desc,id.desc"}))
 
 
 def delete_exam(exam_id: int, include_scores: bool = False) -> None:
@@ -107,6 +156,7 @@ def delete_exam(exam_id: int, include_scores: bool = False) -> None:
     exam still has marks unless include_scores is set."""
     auth.client().rpc("delete_exam", {"p_exam_id": int(exam_id),
                                      "p_include_scores": bool(include_scores)})
+    invalidate_cache()
 
 
 def _score_frame(rows) -> pd.DataFrame:
@@ -119,18 +169,23 @@ def _score_frame(rows) -> pd.DataFrame:
 
 def load_scores_df() -> pd.DataFrame:
     # The security-invoker view inherits RLS, even if a caller removes UI filters.
-    rows = auth.client().rows("score_details", {"select": ",".join(SCORE_COLUMNS), "order": "exam_date,score_id"})
-    return _score_frame(rows)
+    def fetch():
+        rows = auth.client().rows("score_details", {"select": ",".join(SCORE_COLUMNS),
+                                                    "order": "exam_date,score_id"})
+        return _score_frame(rows)
+    return _cached("load_scores_df", fetch)
 
 
 def exam_comparison(exam_id: int, subject_id: int | None = None,
                     topic_id: int | None = None) -> pd.DataFrame:
-    rows = auth.client().rpc_rows("exam_comparison", {"p_exam_id": int(exam_id),
-                            "p_subject_id": int(subject_id) if subject_id is not None else None,
-                            "p_topic_id": int(topic_id) if topic_id is not None else None})
-    frame = pd.DataFrame(rows, columns=["student_id", "student_name", "batch", "score", "topic_count"])
-    frame["score"] = pd.to_numeric(frame["score"]).astype(float)
-    return frame
+    def fetch():
+        rows = auth.client().rpc_rows("exam_comparison", {"p_exam_id": int(exam_id),
+                                "p_subject_id": int(subject_id) if subject_id is not None else None,
+                                "p_topic_id": int(topic_id) if topic_id is not None else None})
+        frame = pd.DataFrame(rows, columns=["student_id", "student_name", "batch", "score", "topic_count"])
+        frame["score"] = pd.to_numeric(frame["score"]).astype(float)
+        return frame
+    return _cached(f"exam_comparison:{int(exam_id)}:{subject_id}:{topic_id}", fetch)
 
 
 def update_score_value(score_id: int, score: float) -> None:
@@ -139,6 +194,7 @@ def update_score_value(score_id: int, score: float) -> None:
     # A manual percentage edit supersedes any stored raw marks (15/20 -> 75).
     auth.client().rest("PATCH", "scores", params={"id": f"eq.{int(score_id)}"},
                        body={"score": float(score), "raw_score": None, "raw_max": None})
+    invalidate_cache()
 
 
 def delete_scores(score_ids: list[int]) -> None:
@@ -146,22 +202,25 @@ def delete_scores(score_ids: list[int]) -> None:
     for start in range(0, len(score_ids), 100):
         ids = ",".join(str(int(i)) for i in score_ids[start:start + 100])
         auth.client().rest("DELETE", "scores", params={"id": f"in.({ids})"})
+    invalidate_cache()
 
 
 def recent_scores(limit: int = 120) -> pd.DataFrame:
-    rows = auth.client().rest("GET", "score_details", params={
-        "select": "score_id,student_name,exam_name,exam_date,subject,topic,score,raw_score,raw_max",
-        "order": "exam_date.desc,score_id.desc", "limit": int(limit)})
-    frame = pd.DataFrame(rows, columns=["score_id", "student_name", "exam_name", "exam_date",
-                                        "subject", "topic", "score", "raw_score", "raw_max"])
-    frame["score"] = pd.to_numeric(frame["score"]).astype(float)
-    frame["raw_score"] = pd.to_numeric(frame["raw_score"])
-    frame["raw_max"] = pd.to_numeric(frame["raw_max"])
-    frame["marks"] = [
-        f"{m:g}/{o:g}" if pd.notna(m) and pd.notna(o) else ""
-        for m, o in zip(frame["raw_score"], frame["raw_max"])
-    ]
-    return frame.rename(columns={"student_name": "student", "exam_name": "exam"})
+    def fetch():
+        rows = auth.client().rest("GET", "score_details", params={
+            "select": "score_id,student_name,exam_name,exam_date,subject,topic,score,raw_score,raw_max",
+            "order": "exam_date.desc,score_id.desc", "limit": int(limit)})
+        frame = pd.DataFrame(rows, columns=["score_id", "student_name", "exam_name", "exam_date",
+                                            "subject", "topic", "score", "raw_score", "raw_max"])
+        frame["score"] = pd.to_numeric(frame["score"]).astype(float)
+        frame["raw_score"] = pd.to_numeric(frame["raw_score"])
+        frame["raw_max"] = pd.to_numeric(frame["raw_max"])
+        frame["marks"] = [
+            f"{m:g}/{o:g}" if pd.notna(m) and pd.notna(o) else ""
+            for m, o in zip(frame["raw_score"], frame["raw_max"])
+        ]
+        return frame.rename(columns={"student_name": "student", "exam_name": "exam"})
+    return _cached(f"recent_scores:{int(limit)}", fetch)
 
 
 def import_records(records: list[dict]) -> int:
@@ -176,6 +235,7 @@ def import_records(records: list[dict]) -> int:
             "The save was not confirmed by the database. Refresh to check "
             "whether the marks landed before retrying."
         )
+    invalidate_cache()
     return int(saved)
 
 
@@ -300,8 +360,9 @@ def resolve_upload(raw: pd.DataFrame) -> tuple[list[dict], list[dict]]:
 
 
 def list_upcoming() -> list[dict]:
-    return auth.client().rows("schedule_details", {"select": "id,title,test_date,topic,notes,subject,class_level",
-                                                   "order": "test_date,id"})
+    return _cached("list_upcoming", lambda: auth.client().rows(
+        "schedule_details", {"select": "id,title,test_date,topic,notes,subject,class_level",
+                             "order": "test_date,id"}))
 
 
 def add_upcoming(title: str, test_date: str, subject_id=None,
@@ -310,10 +371,12 @@ def add_upcoming(title: str, test_date: str, subject_id=None,
                        "subject_id": subject_id, "topic": topic.strip() or None,
                        "notes": notes.strip(),
                        "class_level": int(class_level) if class_level is not None else None})
+    invalidate_cache()
 
 
 def delete_upcoming(test_id: int) -> None:
     auth.client().rest("DELETE", "upcoming_tests", params={"id": f"eq.{int(test_id)}"})
+    invalidate_cache()
 
 
 def subject_name_to_id(name: str):
@@ -321,7 +384,9 @@ def subject_name_to_id(name: str):
 
 
 def audit_events() -> list[dict]:
-    return auth.client().rest("GET", "audit_log", params={"select": "id,actor,action,entity,entity_id,created_at", "order": "id.desc", "limit": 100})
+    return _cached("audit_events", lambda: auth.client().rest(
+        "GET", "audit_log", params={"select": "id,actor,action,entity,entity_id,created_at",
+                                    "order": "id.desc", "limit": 100}))
 
 
 def export_csv(frame: pd.DataFrame) -> str:

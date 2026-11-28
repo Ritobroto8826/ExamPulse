@@ -155,4 +155,39 @@ class DataTests(unittest.TestCase):
         self.assertIn("'=HYPERLINK",csv); self.assertIn("' @SUM",csv); self.assertIn("Safe",csv)
 
 
+class ReadCacheTests(unittest.TestCase):
+    """Reads memoize per session; every write must invalidate them."""
+
+    def setUp(self):
+        self.fake = FakeCloud(populated=True)
+        self.state = {}
+        self.patches = [patch.object(auth.st, "session_state", self.state),
+                        patch("auth.load_settings", return_value=CONFIG),
+                        patch("auth.CloudClient", side_effect=lambda settings, access_token="": CloudClient(settings, access_token, self.fake.transport))]
+        for p in self.patches: p.start()
+        self.addCleanup(lambda: [p.stop() for p in reversed(self.patches)])
+        # Reads need a signed-in JWT or the transport refuses before fetching.
+        user, error = auth.authenticate("staff@example.test", "staff-only-test-passphrase")
+        self.assertIsNone(error)
+        self.state["user"] = user
+
+    def test_reads_hit_cache_until_invalidated(self):
+        with patch.object(self.fake, "handle", wraps=self.fake.handle) as handle:
+            first = database.load_scores_df()
+            second = database.load_scores_df()
+            self.assertEqual(handle.call_count, 1)  # second read is a cache hit
+            self.assertTrue(first.equals(second))
+            database.invalidate_cache()
+            database.load_scores_df()
+            self.assertEqual(handle.call_count, 2)
+
+    def test_write_invalidates_cached_reads(self):
+        with patch.object(self.fake, "handle", wraps=self.fake.handle) as handle:
+            database.list_exams()
+            self.assertEqual(handle.call_count, 1)
+            database.add_upcoming("Cache probe", "2026-12-01")  # a real write
+            database.list_exams()
+            self.assertEqual(handle.call_count, 3)  # write + fresh read
+
+
 if __name__ == '__main__': unittest.main()

@@ -61,9 +61,9 @@ TARGET_SCORE = 75  # student benchmark line
 # ---------------------------------------------------------------------------
 
 def get_scores() -> pd.DataFrame:
-    # A session-local counter is not a database revision: a new student session
-    # starts at 0 and could otherwise reuse a pre-entry, globally cached frame.
-    # Query the user's RLS-protected Supabase view on every rerun.
+    # Session-local TTL cache lives inside database.load_scores_df (never
+    # global: RLS scopes rows to the caller). Writes and the soft-refresh
+    # button invalidate it, so reruns inside the TTL skip the Supabase trip.
     return database.load_scores_df()
 
 
@@ -363,6 +363,7 @@ def render_sidebar(user: dict) -> None:
         if st.button("🔄 Refresh data", key="soft_refresh", width="stretch",
                      help="Reload the latest data from the cloud. "
                           "You stay signed in."):
+            database.invalidate_cache()
             st.rerun()
 
         if user["role"] == "teacher":
@@ -614,6 +615,7 @@ def render_students_page(df: pd.DataFrame) -> None:
             added = st.form_submit_button("Invite student by email", type="primary", width="stretch")
         if added:
             database.invite_student(new_name, new_batch, new_email, new_class)
+            st.toast("✅ Invitation sent")
             st.success("Invitation sent. The student can set their private password from the email link.")
         accounts = database.list_student_accounts()
         if accounts:
@@ -850,6 +852,7 @@ def _render_marksheet(students: list[dict], subjects: list[dict],
         bump()
         detail = "; ".join(conversions[:3]) + \
             (" …" if len(conversions) > 3 else "")
+        st.toast(f"✅ Saved {len(records)} marks")
         st.success(
             f"Saved {len(records)} mark(s) · {exam_name} · "
             f"{class_label(class_sel)} — {detail}"
@@ -1012,6 +1015,7 @@ def render_score_entry(df: pd.DataFrame) -> None:
         database.import_records(records)
         bump()
         detail = "; ".join(conversions[:3]) + (" …" if len(conversions) > 3 else "")
+        st.toast(f"✅ Saved {len(records)} topics")
         st.success(
             f"Saved {len(records)} topic(s) for {stu_name} "
             f"({class_label(class_level)}) — {detail}"
@@ -1087,6 +1091,7 @@ def _render_recent_entries(df: pd.DataFrame) -> None:
     if del_choice and st.button("🗑 Delete selected", key="del_btn"):
         database.delete_scores(del_choice)
         bump()
+        st.toast("🗑 Scores deleted")
         st.success(f"Deleted {len(del_choice)} entr"
                    f"{'y' if len(del_choice) == 1 else 'ies'}.")
         st.rerun()
@@ -1162,6 +1167,7 @@ def render_upload_page(df: pd.DataFrame) -> None:
                         ):
                             n = database.import_records(records)
                             bump()
+                            st.toast(f"✅ Imported {n} score rows")
                             st.success(f"Imported {n} score rows successfully.")
                             st.rerun()
 
@@ -1293,6 +1299,7 @@ def render_schedule_page(role: str, df: pd.DataFrame,
                             database.subject_name_to_id(subj), topic, notes,
                             class_level=sch_class if topic else None,
                         )
+                        st.toast("📅 Test scheduled")
                         st.success(f"Scheduled “{title.strip()}” "
                                    f"on {tdate.strftime('%d %b %Y')}.")
                         st.rerun()
