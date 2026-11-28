@@ -47,6 +47,17 @@ class ManifestTests(unittest.TestCase):
         config = (ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
         self.assertIn("enableStaticServing = true", config)
 
+    def test_install_page_links_manifest_from_real_head(self):
+        # Chromium only reads <link rel=manifest> from a parsed <head> — the
+        # install page ships one natively (the app itself can't touch its head).
+        html = (STATIC / "install.html").read_text(encoding="utf-8")
+        self.assertTrue(html.lower().startswith("<!doctype html>"))
+        head = html.split("</head>")[0]
+        self.assertIn('<link rel="manifest" href="/app/static/manifest.json">', head)
+        self.assertIn('<link rel="apple-touch-icon" href="/app/static/apple-touch-icon.png">', head)
+        self.assertIn('name="apple-mobile-web-app-capable"', head)
+        self.assertIn('name="theme-color"', head)
+
 
 class InjectionTests(unittest.TestCase):
     def test_app_declares_manifest_and_touch_icon(self):
