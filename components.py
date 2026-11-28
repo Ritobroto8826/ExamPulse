@@ -242,8 +242,6 @@ def login_hero_html() -> str:
         '<div class="logo-dot"><svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M3 16h4l3-9 4 13 3-9h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
         "<h1>BrightSteps Tuition</h1>"
         "<p>Small batches, big leaps · track exam scores · spot weak topics · improve faster.</p>"
-        '<p><a class="login-install" href="/app/static/install.html">'
-        "📥 Install as app · add to home screen</a></p>"
         "</div>"
     )
 
