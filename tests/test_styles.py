@@ -107,6 +107,19 @@ class MobileLayoutTests(unittest.TestCase):
                       "active tab needs the selected-pill treatment")
 
 
+class FontTests(unittest.TestCase):
+    def test_inter_loads_from_google_fonts_with_swap(self):
+        # The stack names Inter first, so it must actually load — and @import
+        # must precede every rule or the browser drops it.
+        index = CSS.index("@import")
+        self.assertLess(index, CSS.index("{"),
+                        "@import must come before the first rule")
+        head = CSS[index:index + 220]
+        self.assertIn("fonts.googleapis.com/css2?family=Inter", head)
+        self.assertIn("display=swap", head,
+                      "font must never block first paint")
+
+
 class PaletteTests(unittest.TestCase):
     def test_red_yellow_green_are_first_class_in_both_modes(self):
         self.assertEqual(LIGHT["green"], "#22C55E")
