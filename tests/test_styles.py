@@ -93,9 +93,19 @@ class MobileLayoutTests(unittest.TestCase):
         self.assertIn('input[type="text"]', joined)
 
     def test_mobile_spacing_is_tighter_than_desktop(self):
-        # Bottom padding leaves room for the fixed tab bar.
-        self.assertIn("padding:4.1rem 14px 5rem", CSS)
-        self.assertIn("gap:14px", self._mobile_blocks()[0])
+        # Bottom padding must clear the fixed tab bar *and* the iOS home
+        # indicator, so the last line of content is never covered.
+        self.assertIn(
+            "padding:4.1rem 14px calc(6.75rem + env(safe-area-inset-bottom))",
+            CSS)
+        self.assertIn("gap:14px !important", self._mobile_blocks()[0])
+
+    def test_phone_bar_owns_no_extra_height(self):
+        # The collapsed widget label can reserve a hidden row; zeroing label
+        # and margins keeps the bar's height deterministic (44px options only).
+        mobile = self._mobile_blocks()[0]
+        self.assertIn('.st-key-nav_mob [data-testid="stWidgetLabel"] { display:none !important; }', mobile)
+        self.assertIn('.st-key-nav_mob [data-testid="stRadio"] { width:100%;margin:0 !important; }', mobile)
 
     def test_phone_nav_bar_is_fixed_to_the_bottom(self):
         # Hidden at desktop widths, fixed and thumb-reachable on phones.
@@ -105,6 +115,37 @@ class MobileLayoutTests(unittest.TestCase):
         self.assertIn("bottom:0", mobile)
         self.assertIn(":has(input:checked)", mobile,
                       "active tab needs the selected-pill treatment")
+
+
+class LayoutAlignmentTests(unittest.TestCase):
+    """Desktop: uniform gaps and one card system so grids line up."""
+
+    def test_column_gaps_are_uniform_and_forced(self):
+        # Streamlit per-row gap styling must not win over the design system.
+        self.assertIn('[data-testid="stHorizontalBlock"] { gap: 20px !important; }',
+                      CSS)
+        first_block = re.findall(
+            r"@media\s*\(max-width:768px\)\s*\{.*?\n\}", CSS, re.S)[0]
+        self.assertIn("gap:8px !important", first_block)
+
+    def test_kpi_cards_share_the_card_corner_and_padding(self):
+        # KPI tiles and bordered cards are one system: 16px radius, 21px pad.
+        match = re.search(r"\.kpi-card\s*\{([^}]*)\}", CSS)
+        self.assertIsNotNone(match)
+        self.assertIn("border-radius:16px", match.group(1))
+        self.assertIn("padding:21px", match.group(1))
+        self.assertIn("gap:20px", re.search(r"\.kpi-row\s*\{([^}]*)\}", CSS).group(1))
+
+    def test_column_card_containers_stretch_to_equal_heights(self):
+        # Every side-by-side bordered card uses height="stretch" (Streamlit
+        # 1.67 native equal-height pattern). Full-width cards must not.
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        stretch = source.count('st.container(border=True, height="stretch")')
+        plain = source.count("with st.container(border=True):")
+        self.assertEqual(stretch, 14,
+                         "column-paired card containers need height=\"stretch\"")
+        self.assertEqual(plain, 3,
+                         "only full-width cards stay content-height")
 
 
 class FontTests(unittest.TestCase):
