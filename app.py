@@ -1,4 +1,4 @@
-"""ExamPulse — Streamlit exam score tracker & weak-area analytics dashboard.
+"""BrightSteps Tuition — Streamlit exam score tracker & weak-area analytics dashboard.
 
 Teacher role : full class access, score entry, bulk upload, analytics, schedule.
 Student role : own progress/weak topics/schedule; read-only peer exam comparison.
@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="ExamPulse · Exam Score Tracker",
+    page_title="BrightSteps Tuition · Score Tracker",
     page_icon="🎯",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -396,7 +396,7 @@ def render_sidebar(user: dict) -> None:
                 "Weak-area flags, donuts and color bands update live with "
                 "this threshold."
             )
-        st.caption("ExamPulse · Supabase secured")
+        st.caption("BrightSteps Tuition · Supabase secured")
 
 
 # ---------------------------------------------------------------------------

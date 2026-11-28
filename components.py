@@ -240,8 +240,8 @@ def login_hero_html() -> str:
     return (
         '<div class="login-hero">'
         '<div class="logo-dot"><svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M3 16h4l3-9 4 13 3-9h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
-        "<h1>ExamPulse</h1>"
-        "<p>Track exam scores · spot weak topics · improve faster.</p>"
+        "<h1>BrightSteps Tuition</h1>"
+        "<p>Small batches, big leaps · track exam scores · spot weak topics · improve faster.</p>"
         "</div>"
     )
 

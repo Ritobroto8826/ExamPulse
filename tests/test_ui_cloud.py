@@ -260,6 +260,16 @@ class CloudUITests(unittest.TestCase):
                 self.assertTrue(any(x.label=="Email address" for x in at.text_input))
 
 
+    def test_brand_is_brightsteps_with_tagline(self):
+        self.setup_cloud()
+        at=AppTest.from_file(str(ROOT/"app.py"),default_timeout=30).run()
+        self.check(at)
+        raw="\n".join(str(x.value) for x in at.markdown)
+        visible=raw.split("</style>")[-1]  # ignore the injected stylesheet blob
+        self.assertIn("BrightSteps Tuition",visible)   # login hero
+        self.assertIn("Small batches, big leaps",visible)  # topbar caption + hero line
+        self.assertNotIn("ExamPulse",visible)
+
     def test_class_view_scoped_to_its_pages_and_soft_refresh(self):
         self.setup_cloud(populated=True)
         at=AppTest.from_file(str(ROOT/"app.py"),default_timeout=30).run()
