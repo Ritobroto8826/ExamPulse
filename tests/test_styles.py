@@ -1,12 +1,15 @@
-"""Dark-mode floating layers (tooltips, date calendar) must carry our tokens.
+"""Dark-mode floating layers and the lively palette.
 
 These elements portal outside the styled containers; without explicit
 background/colour rules they render light-on-light in dark mode — the exact
-bug behind the invisible exam-date calendar and help popups.
+bug behind the invisible exam-date calendar and help popups. Palette tests
+lock the red/yellow/green tokens so future tweaks keep the app lively.
 """
 import re
 import unittest
 from pathlib import Path
+
+from theme import DARK, LIGHT
 
 ROOT = Path(__file__).resolve().parents[1]
 CSS = (ROOT / "styles.css").read_text(encoding="utf-8")
@@ -40,6 +43,45 @@ class PopupCssTests(unittest.TestCase):
         self.assertIn("background", match.group(1))
         self.assertIn("!important", match.group(1))
         self.assertIn("color", match.group(1))
+
+    def test_primary_button_uses_vivid_gradient(self):
+        match = re.search(r'button\[kind="primary"\][^{]*\{([^}]*)\}', CSS)
+        self.assertIsNotNone(match, "primary button rule missing")
+        self.assertIn("linear-gradient", match.group(1),
+                      "primary actions must carry the violet→blue gradient")
+        self.assertIn("!important", match.group(1))
+
+    def test_selected_nav_pill_uses_gradient(self):
+        match = re.search(
+            r'\[data-testid="stSidebar"\][^{]*\[data-selected="true"\][^{]*\{([^}]*)\}',
+            CSS)
+        self.assertIsNotNone(match, "selected nav pill rule missing")
+        self.assertIn("linear-gradient", match.group(1))
+
+    def test_threshold_slider_track_is_red_yellow_green(self):
+        match = re.search(
+            r'\[data-testid="stSlider"\][^{]*div:has\(\+ \[role="slider"\]\)[^{]*\{([^}]*)\}',
+            CSS)
+        self.assertIsNotNone(match, "slider rainbow track rule missing")
+        for token in ("var(--coral)", "var(--amber)", "var(--green)"):
+            self.assertIn(token, match.group(1),
+                          f"slider rail must pass through {token}")
+
+
+class PaletteTests(unittest.TestCase):
+    def test_red_yellow_green_are_first_class_in_both_modes(self):
+        self.assertEqual(LIGHT["green"], "#22C55E")
+        self.assertEqual(LIGHT["amber"], "#F59E0B")
+        self.assertEqual(LIGHT["coral"], "#EF4444")
+        self.assertEqual(DARK["green"], "#22C55E")
+        self.assertEqual(DARK["amber"], "#FBBF24")
+        self.assertEqual(DARK["coral"], "#F87171")
+
+    def test_modes_use_distinct_bases_and_shared_violet(self):
+        self.assertNotEqual(LIGHT["bg"], DARK["bg"])
+        self.assertNotEqual(LIGHT["card"], DARK["card"])
+        self.assertEqual(LIGHT["accent"], "#7C3AED")
+        self.assertEqual(DARK["accent"], "#A78BFA")
 
 
 if __name__ == "__main__":

@@ -132,7 +132,7 @@ def build_kpi_cards(df: pd.DataFrame, role: str, threshold: int) -> list[dict]:
         cards.append({
             "label": "Topics Above Mastery",
             "ring": 100.0 * n_above / max(1, len(topic_means)),
-            "ring_color": "#6C5CE7",
+            "ring_color": "#7C3AED",
             "sub": f"{n_above} of {len(topic_means)} topics ≥ {threshold}%",
         })
         pairs = df.groupby(["student_id", "topic_id"])["score"].mean()
@@ -166,7 +166,7 @@ def build_kpi_cards(df: pd.DataFrame, role: str, threshold: int) -> list[dict]:
     cards.append({
         "label": "Topics Above Mastery",
         "ring": 100.0 * n_above / max(1, len(topic_means)),
-        "ring_color": "#6C5CE7",
+        "ring_color": "#7C3AED",
         "sub": f"{n_above} of {len(topic_means)} topics ≥ {threshold}%",
     })
     pct_scores = 100.0 * float((df["score"] >= threshold).mean())
