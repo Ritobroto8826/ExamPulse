@@ -93,8 +93,18 @@ class MobileLayoutTests(unittest.TestCase):
         self.assertIn('input[type="text"]', joined)
 
     def test_mobile_spacing_is_tighter_than_desktop(self):
-        self.assertIn("padding:4.1rem 14px 2.25rem", CSS)
+        # Bottom padding leaves room for the fixed tab bar.
+        self.assertIn("padding:4.1rem 14px 5rem", CSS)
         self.assertIn("gap:14px", self._mobile_blocks()[0])
+
+    def test_phone_nav_bar_is_fixed_to_the_bottom(self):
+        # Hidden at desktop widths, fixed and thumb-reachable on phones.
+        self.assertIn(".st-key-nav_mob { display:none; }", CSS)
+        mobile = self._mobile_blocks()[0]
+        self.assertIn(".st-key-nav_mob { display:block;position:fixed;", mobile)
+        self.assertIn("bottom:0", mobile)
+        self.assertIn(":has(input:checked)", mobile,
+                      "active tab needs the selected-pill treatment")
 
 
 class PaletteTests(unittest.TestCase):
